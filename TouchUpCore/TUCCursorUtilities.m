@@ -15,8 +15,12 @@
 
 @property BOOL isLeftMouseDown;
 
-@property CGPoint momentumScrollTranslation;
+@property CGPoint momentumScrollVelocity;
+@property CFTimeInterval momentumLastTickTime;
 @property (strong) NSTimer *momentumScrollTimer;
+
+@property CGPoint scrollVelocity;
+@property CFTimeInterval scrollLastSampleTime;
 
 @property BOOL isMagnifying;
 @property CGFloat lastPinchDistance;
@@ -24,6 +28,11 @@
 @end
 
 @implementation TUCCursorUtilities
+
+static const NSTimeInterval kMomentumTickInterval = 1.0 / 60.0;
+static const CGFloat kMomentumVelocityStopThreshold = 5.0;     // px/s
+static const CGFloat kMomentumStartThreshold = 120.0;          // px/s
+static const CGFloat kMomentumDecelerationPerFrame = 0.95;     // 60Hz
 
 + (TUCCursorUtilities *)sharedInstance {
     static TUCCursorUtilities *sharedInstance;
@@ -35,6 +44,10 @@
             sharedInstance.cursorClickCount = 0;
             sharedInstance.timeOfLastClick = [NSDate dateWithTimeIntervalSince1970:0];
             sharedInstance.locationOfLastClick = CGPointZero;
+            sharedInstance.scrollLastSampleTime = 0;
+            sharedInstance.scrollVelocity = CGPointZero;
+            sharedInstance.momentumScrollVelocity = CGPointZero;
+            sharedInstance.momentumLastTickTime = 0;
         }
     });
     return sharedInstance;
@@ -59,6 +72,33 @@
     
     CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, aLocation, kCGMouseButtonLeft);
     CGEventSetIntegerValueField(event, kCGMouseEventClickState, 0);
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+}
+
+static inline CGFloat TUCLength(CGPoint v) {
+    return (CGFloat)sqrt((double)(v.x * v.x + v.y * v.y));
+}
+
+static inline CGPoint TUCPointScale(CGPoint p, CGFloat s) {
+    return CGPointMake(p.x * s, p.y * s);
+}
+
+static inline CGPoint TUCPointLerp(CGPoint a, CGPoint b, CGFloat t) {
+    return CGPointMake(a.x + (b.x - a.x) * t,
+                       a.y + (b.y - a.y) * t);
+}
+
+static inline CGFloat TUCClamp(CGFloat v, CGFloat minV, CGFloat maxV) {
+    return v < minV ? minV : (v > maxV ? maxV : v);
+}
+
+static inline CFTimeInterval TUCNowSeconds(void) {
+    return CACurrentMediaTime();
+}
+
+- (void)postScrollTranslation:(CGPoint)translation {
+    CGEventRef event = CGEventCreateScrollWheelEvent2(NULL, kCGScrollEventUnitPixel, 2, translation.y, translation.x, 0);
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
 }
@@ -169,33 +209,81 @@
 
 - (void)scroll:(CGPoint)translation phase:(NSTouchPhase)phase {
     [self stopDraggingCursor];
-    
-    CGEventRef event = CGEventCreateScrollWheelEvent2(NULL, kCGScrollEventUnitPixel, 2, translation.y, translation.x, 0);
-    
-    CGEventPost(kCGHIDEventTap, event);
-    CFRelease(event);
-    
-    if (phase == NSTouchPhaseEnded) {
-        // TODO: consider sampling rate of digitizer and screen refresh rate
+
+    CFTimeInterval now = TUCNowSeconds();
+
+    if (phase == NSTouchPhaseBegan || self.scrollLastSampleTime == 0) {
         [self cancelMomentumScroll];
-        
-        self.momentumScrollTimer = [NSTimer scheduledTimerWithTimeInterval:0.01 target:self selector:@selector(updateMomentumScroll) userInfo:nil repeats:YES];
-    } else {
-        self.momentumScrollTranslation = translation;
+        self.scrollLastSampleTime = now;
+        self.scrollVelocity = CGPointZero;
+    }
+
+    // Post the actual scroll event for this frame.
+    [self postScrollTranslation:translation];
+
+    if (phase == NSTouchPhaseMoved) {
+        CFTimeInterval dt = now - self.scrollLastSampleTime;
+        self.scrollLastSampleTime = now;
+        if (dt > 0.0005) {
+            dt = (CFTimeInterval)TUCClamp((CGFloat)dt, 0.0005f, 0.05f);
+            CGPoint instVelocity = TUCPointScale(translation, (CGFloat)(1.0 / dt));
+            // Low-pass filter to smooth noisy velocity estimates.
+            self.scrollVelocity = TUCPointLerp(self.scrollVelocity, instVelocity, 0.25f);
+        }
+        return;
+    }
+
+    if (phase == NSTouchPhaseEnded || phase == NSTouchPhaseCancelled) {
+        self.scrollLastSampleTime = 0;
+
+        CGPoint v0 = self.scrollVelocity;
+        self.scrollVelocity = CGPointZero;
+
+        if (TUCLength(v0) < kMomentumStartThreshold) {
+            [self cancelMomentumScroll];
+            return;
+        }
+
+        // Start inertial scrolling from the last measured finger velocity.
+        [self cancelMomentumScroll];
+        self.momentumScrollVelocity = v0;
+        self.momentumLastTickTime = now;
+
+        self.momentumScrollTimer = [NSTimer timerWithTimeInterval:kMomentumTickInterval
+                                                          target:self
+                                                        selector:@selector(updateMomentumScroll)
+                                                        userInfo:nil
+                                                         repeats:YES];
+        [[NSRunLoop mainRunLoop] addTimer:self.momentumScrollTimer forMode:NSRunLoopCommonModes];
+        return;
     }
 }
 
 
 
 - (void)updateMomentumScroll {
-    self.momentumScrollTranslation = CGPointMake(self.momentumScrollTranslation.x * 0.985,
-                                                 self.momentumScrollTranslation.y * 0.985);
-    
-    if (fabs(self.momentumScrollTranslation.x) < 0.1 && fabs(self.momentumScrollTranslation.y) < 0.1) {
-        [self cancelMomentumScroll];
+    CFTimeInterval now = TUCNowSeconds();
+    CFTimeInterval dt = now - self.momentumLastTickTime;
+    self.momentumLastTickTime = now;
+    if (dt <= 0) {
+        return;
     }
-    
-    [self scroll:self.momentumScrollTranslation phase:NSTouchPhaseMoved];
+
+    dt = (CFTimeInterval)TUCClamp((CGFloat)dt, 0.001f, 0.05f);
+
+    CGPoint v = self.momentumScrollVelocity;
+    if (fabs(v.x) < kMomentumVelocityStopThreshold && fabs(v.y) < kMomentumVelocityStopThreshold) {
+        [self cancelMomentumScroll];
+        return;
+    }
+
+    CGPoint translation = TUCPointScale(v, (CGFloat)dt);
+    [self postScrollTranslation:translation];
+
+    // Exponential decay tuned for ~60Hz.
+    CGFloat frames = (CGFloat)(dt / kMomentumTickInterval);
+    CGFloat decay = (CGFloat)pow(kMomentumDecelerationPerFrame, frames);
+    self.momentumScrollVelocity = TUCPointScale(v, decay);
 }
 
 
@@ -205,6 +293,10 @@
         [self.momentumScrollTimer invalidate];
         self.momentumScrollTimer = nil;
     }
+    self.momentumScrollVelocity = CGPointZero;
+    self.momentumLastTickTime = 0;
+    self.scrollVelocity = CGPointZero;
+    self.scrollLastSampleTime = 0;
 }
 
 
