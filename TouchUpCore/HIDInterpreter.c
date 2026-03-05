@@ -483,6 +483,13 @@ static void Handle_InputValueCallback (
     
     IOHIDElementRef elem = IOHIDValueGetElement(inIOHIDValueRef);
     
+    if (gQueue == NULL) {
+        // If we haven't set up the device queue yet, there's nowhere to route values.
+        // The matching callback should create/schedule/start gQueue; this guard avoids a crash
+        // and lets the system retry when the queue becomes available.
+        return;
+    }
+
     Boolean added = IOHIDQueueContainsElement(gQueue, elem);
     if(!added) {
         IOHIDQueueAddElement(gQueue, elem);
@@ -509,6 +516,12 @@ static void Handle_DeviceMatchingCallback(
         __PRETTY_FUNCTION__, inContext, (void *) inResult, inSender, (void*) inIOHIDDeviceRef);
    
     gAreElementRefsSet = 0;
+
+    // This interpreter currently supports a single active touchscreen queue.
+    // If we already have one, ignore additional matching callbacks.
+    if (gQueue != NULL) {
+        return;
+    }
     
     
     IOHIDQueueRef queue = IOHIDQueueCreate(kCFAllocatorDefault, inIOHIDDeviceRef, 1000, kNilOptions);
@@ -518,10 +531,9 @@ static void Handle_DeviceMatchingCallback(
     }
     
     IOHIDQueueRegisterValueAvailableCallback(queue, Handle_QueueValueAvailable, NULL);
+    IOHIDQueueScheduleWithRunLoop(queue, gRunLoopRef, kCFRunLoopCommonModes);
     IOHIDQueueStart(queue);
     gQueue = queue;
-    
-    IOHIDQueueScheduleWithRunLoop(queue, gRunLoopRef, kCFRunLoopCommonModes);
     
     TouchInputManagerDidConnectTouchscreen(gTouchManager);
     
@@ -538,13 +550,21 @@ static void Handle_RemovalCallback(
 ) {
     printf("%s(context: %p, result: %p, sender: %p, device: %p).\n",
         __PRETTY_FUNCTION__, inContext, (void *) inResult, inSender, (void*) inIOHIDDeviceRef);
-    IOHIDQueueStop(gQueue);
-    CFRelease(gQueue);
-    gQueue = NULL;
+    if (gQueue != NULL) {
+        IOHIDQueueStop(gQueue);
+        CFRelease(gQueue);
+        gQueue = NULL;
+    }
     
-    CFArrayRemoveAllValues(gTouchCollectionElements);
-    CFArrayRemoveAllValues(gContactIdentifiers);
-    CFDictionaryRemoveAllValues(gStoredInputValues);
+    if (gTouchCollectionElements != NULL) {
+        CFArrayRemoveAllValues(gTouchCollectionElements);
+    }
+    if (gContactIdentifiers != NULL) {
+        CFArrayRemoveAllValues(gContactIdentifiers);
+    }
+    if (gStoredInputValues != NULL) {
+        CFDictionaryRemoveAllValues(gStoredInputValues);
+    }
     
     TouchInputManagerDidDisconnectTouchscreen(gTouchManager);
 }   // Handle_RemovalCallback
@@ -598,6 +618,10 @@ static CFMutableDictionaryRef CreateDeviceMatchingDictionary(UInt32 inUsagePage,
 void OpenHIDManager(void *delegate) {
     gTouchManager = delegate;
     
+    // If Open is called twice within one process, make sure we start clean.
+    if (gHidManager != NULL) {
+        CloseHIDManager();
+    }
     
     gHidManager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
     
@@ -638,13 +662,67 @@ void OpenHIDManager(void *delegate) {
     IOHIDManagerScheduleWithRunLoop(gHidManager, gRunLoopRef,
                                     kCFRunLoopCommonModes);
 
-    IOHIDManagerOpen(gHidManager, kIOHIDOptionsTypeNone);
+    IOReturn openRes = IOHIDManagerOpen(gHidManager, kIOHIDOptionsTypeNone);
+    if (openRes != kIOReturnSuccess) {
+        fprintf(stderr, "%s: IOHIDManagerOpen failed: 0x%x\n", __PRETTY_FUNCTION__, openRes);
+    }
+
+    // Some systems don't reliably invoke the matching callback for already-attached devices
+    // at app start. Force an enumeration pass and initialize the queue immediately.
+    if (gQueue == NULL) {
+        CFSetRef devices = IOHIDManagerCopyDevices(gHidManager);
+        if (devices != NULL) {
+            CFIndex count = CFSetGetCount(devices);
+            if (count > 0) {
+                IOHIDDeviceRef *values = (IOHIDDeviceRef *)calloc((size_t)count, sizeof(IOHIDDeviceRef));
+                if (values != NULL) {
+                    CFSetGetValues(devices, (const void **)values);
+                    for (CFIndex i = 0; i < count; i++) {
+                        if (gQueue != NULL) {
+                            break;
+                        }
+                        Handle_DeviceMatchingCallback(NULL, kIOReturnSuccess, gHidManager, values[i]);
+                    }
+                    free(values);
+                }
+            }
+            CFRelease(devices);
+        }
+    }
 }
 
 
 
 void CloseHIDManager(void) {
-    IOHIDManagerUnscheduleFromRunLoop(gHidManager, gRunLoopRef, kCFRunLoopCommonModes);
-    IOHIDManagerClose(gHidManager, kIOHIDOptionsTypeNone);
-}
+    if (gQueue != NULL) {
+        IOHIDQueueUnscheduleFromRunLoop(gQueue, gRunLoopRef, kCFRunLoopCommonModes);
+        IOHIDQueueStop(gQueue);
+        CFRelease(gQueue);
+        gQueue = NULL;
+    }
 
+    if (gHidManager != NULL) {
+        IOHIDManagerUnscheduleFromRunLoop(gHidManager, gRunLoopRef, kCFRunLoopCommonModes);
+        IOHIDManagerClose(gHidManager, kIOHIDOptionsTypeNone);
+        CFRelease(gHidManager);
+        gHidManager = NULL;
+    }
+
+    if (gTouchCollectionElements != NULL) {
+        CFRelease(gTouchCollectionElements);
+        gTouchCollectionElements = NULL;
+    }
+    if (gContactIdentifiers != NULL) {
+        CFRelease(gContactIdentifiers);
+        gContactIdentifiers = NULL;
+    }
+    if (gStoredInputValues != NULL) {
+        CFRelease(gStoredInputValues);
+        gStoredInputValues = NULL;
+    }
+
+    gAreElementRefsSet = 0;
+    gContactCount = 1;
+    gHybridOffset = 0;
+    gTouchscreenUsesHybridMode = FALSE;
+}

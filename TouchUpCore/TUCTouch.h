@@ -55,6 +55,7 @@ typedef NS_ENUM(NSUInteger, TUCCursorAction) {
 @property CGPoint previousLocation;
 
 @property NSInteger lastUpdated; // the page ID during last update
+@property (strong, nonatomic) NSDate *lastUpdatedAt; // wall-clock timestamp of last updateTouch
 
 
 - (instancetype)initWithContactID:(NSInteger)contactID ;

@@ -26,6 +26,7 @@
         
         
         _lastUpdated = 0;
+        _lastUpdatedAt = [NSDate date];
         
         
         _phase = NSTouchPhaseBegan;
@@ -61,6 +62,17 @@
 - (void)setLocation:(CGPoint)location {
     _previousLocation = _location;
     _location = location;
+}
+
+@synthesize lastUpdated = _lastUpdated;
+
+- (NSInteger)lastUpdated {
+    return _lastUpdated;
+}
+
+- (void)setLastUpdated:(NSInteger)lastUpdated {
+    _lastUpdated = lastUpdated;
+    _lastUpdatedAt = [NSDate date];
 }
 
 

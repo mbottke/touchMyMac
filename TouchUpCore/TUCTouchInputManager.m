@@ -30,6 +30,8 @@
 
 @property TUCCursorGesture identifiedMultitouchGesture;
 
+@property (strong) NSTimer *touchInactivityTimer;
+
 @end
 
 
@@ -40,6 +42,7 @@ static const CGFloat kTapCancelDistanceMM = 4.0f;
 static const CGFloat kTapFallbackDistanceMM = 5.0f;
 static const NSTimeInterval kTapFallbackDuration = 0.25;
 static const CGFloat kScrollReanchorDistanceMM = 25.0f;
+static const NSTimeInterval kTouchInactivityTimeout = 0.12;
 
 #pragma mark   Start & Stop
 
@@ -52,11 +55,24 @@ static const CGFloat kScrollReanchorDistanceMM = 25.0f;
 //        [NSThread setThreadPriority:1];
         OpenHIDManager((__bridge void *)(weakSelf));
 //    }];
+
+    if (self.touchInactivityTimer == nil) {
+        self.touchInactivityTimer = [NSTimer timerWithTimeInterval:0.03
+                                                            target:self
+                                                          selector:@selector(handleTouchInactivityTimer:)
+                                                          userInfo:nil
+                                                           repeats:YES];
+        [[NSRunLoop mainRunLoop] addTimer:self.touchInactivityTimer forMode:NSRunLoopCommonModes];
+    }
     
 }
 
 - (void)stop {
     CloseHIDManager();
+    if (self.touchInactivityTimer != nil) {
+        [self.touchInactivityTimer invalidate];
+        self.touchInactivityTimer = nil;
+    }
 }
 
 
@@ -78,7 +94,11 @@ static const CGFloat kScrollReanchorDistanceMM = 25.0f;
     for (TUCTouch *touch in self.touchSet) {
         
         if (touch.lastUpdated + self.errorResistance < self.currentFrameID) {
-            [touch setPhase:NSTouchPhaseCancelled];
+            // Some touchscreens don't reliably report liftoff (tip switch off) for the final contact.
+            // If a touch disappears from the report stream, treat it as a liftoff so tap/scroll end
+            // can still be recognized.
+            [touch setIsOnSurface:NO];
+            [touch setPhase:NSTouchPhaseEnded];
             [self removeTouch:touch now:NO];
         }
     }
@@ -91,6 +111,50 @@ static const CGFloat kScrollReanchorDistanceMM = 25.0f;
     
     [self processTouchesForCursorInput];
     
+}
+
+- (void)handleTouchInactivityTimer:(NSTimer *)timer {
+    if (self.touchSet.count == 0) {
+        return;
+    }
+
+    NSDate *now = [NSDate date];
+    BOOL didChange = NO;
+
+    // Iterate over a snapshot, as we may remove touches.
+    NSArray<TUCTouch *> *touches = [self.touchSet allObjects];
+    for (TUCTouch *touch in touches) {
+        if (!touch.isActive) {
+            continue;
+        }
+
+        NSDate *lastUpdatedAt = touch.lastUpdatedAt;
+        if (lastUpdatedAt == nil) {
+            continue;
+        }
+
+        NSTimeInterval idle = [now timeIntervalSinceDate:lastUpdatedAt];
+        if (idle < kTouchInactivityTimeout) {
+            continue;
+        }
+
+        // If the device stops sending reports on liftoff (common for some touchscreens),
+        // synthesize an Ended phase so taps and scroll/drags can terminate.
+        [touch setIsOnSurface:NO];
+        [touch setPhase:NSTouchPhaseEnded];
+
+        if (self.cursorTouch != nil && touch.uuid == self.cursorTouch.uuid) {
+            // Drive the existing gesture state machine to decide between tap/drag/hold&drag.
+            [self processTouchesForCursorInput];
+        }
+
+        [self removeTouch:touch now:NO];
+        didChange = YES;
+    }
+
+    if (didChange) {
+        [self.delegate touchesDidChange];
+    }
 }
 
 - (CGFloat)distanceMMFromPoint:(CGPoint)p1 toPoint:(CGPoint)p2 {
@@ -258,7 +322,9 @@ static const CGFloat kScrollReanchorDistanceMM = 25.0f;
         CGFloat movementMM = [self cursorTouchDistanceFromStartMM];
         NSTimeInterval touchDuration = self.cursorTouchBeganDate == nil ? 0 : [[NSDate date] timeIntervalSinceDate:self.cursorTouchBeganDate];
         BOOL shortTouchWithSmallTravel = touchDuration <= kTapFallbackDuration && movementMM <= kTapFallbackDistanceMM;
-        BOOL shouldTreatAsTap = self.cursorTouchQualifiedForTap || shortTouchWithSmallTravel;
+        // Only interpret liftoff as a tap when no other fingers are still active.
+        BOOL noOtherActiveTouches = touches.count == 0;
+        BOOL shouldTreatAsTap = noOtherActiveTouches && (self.cursorTouchQualifiedForTap || shortTouchWithSmallTravel);
         
         if (self.identifiedMultitouchGesture == _TUCCursorGestureNone ) {
             if (self.cursorTouchDidHold) {

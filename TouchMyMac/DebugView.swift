@@ -43,6 +43,7 @@ struct DebugView: View {
     }
     
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.05)) { context in
         ZStack(alignment: .bottom) {
             
             Rectangle()
@@ -53,19 +54,26 @@ struct DebugView: View {
                         
                         
                         ForEach(model.touches, id:\.uuid) { point in
+                            let ageMs = Int(context.date.timeIntervalSince(point.lastUpdatedAt) * 1000)
+
                             Circle()
                                 .foregroundColor(colorForPhase(point.phase))
-                                .border(Color.gray, width: point.confidenceFlag ? 5: 0)
+                                .border(Color.gray, width: point.confidenceFlag ? 5 : 0)
                                 .opacity(point.isActive() ? 1 : 0.5)
                                 .frame(width: 16 * pixelsPerMM, height: 16 * pixelsPerMM)
                                 .position(x: geo.size.width * point.location.x,
                                           y: geo.size.height * point.location.y)
-                                
-                            
-                            Text("\(point.contactID)")
-                                .font(.system(size: 40))
-                                .position(x: geo.size.width * point.location.x,
-                                          y: geo.size.height * point.location.y)
+
+                            Text("\(point.contactID)\nS:\(point.isOnSurface ? 1 : 0)  V:\(point.confidenceFlag ? 1 : 0)\nA:\(ageMs)ms")
+                                .multilineTextAlignment(.center)
+                                .font(.system(size: 26, weight: .semibold, design: .monospaced))
+                                .foregroundColor(.white)
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 6)
+                                .background(Color.black.opacity(0.45))
+                                .cornerRadius(6)
+                            .position(x: geo.size.width * point.location.x,
+                                      y: geo.size.height * point.location.y)
                             
                         }
                         
@@ -93,6 +101,7 @@ struct DebugView: View {
             .buttonStyle(.borderless)
             .keyboardShortcut(KeyEquivalent("w"), modifiers: [.command])
             .padding(.bottom, 140)
+        }
         }
         
             
