@@ -96,6 +96,36 @@ struct SettingsView: View {
             }
         }
     }
+
+    var scrollSettings: some View {
+        Group {
+            Toggle(isOn: $model.isScrollInertiaEnabled) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.isScrollInertiaEnabled))
+            }
+
+            let amount: Binding<Double> = Binding {
+                Double(model.scrollInertiaVelocityMultiplier)
+            } set: { value in
+                model.scrollInertiaVelocityMultiplier = CGFloat(value)
+            }
+
+            Slider(value: amount, in: 0.5...2.0, step: 0.05) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.scrollInertiaVelocityMultiplier))
+            }
+            .disabled(!model.isScrollInertiaEnabled)
+
+            let decel: Binding<Double> = Binding {
+                Double(model.scrollInertiaDecelerationPerFrame)
+            } set: { value in
+                model.scrollInertiaDecelerationPerFrame = CGFloat(value)
+            }
+
+            Slider(value: decel, in: 0.85...0.99, step: 0.005) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.scrollInertiaDecelerationPerFrame))
+            }
+            .disabled(!model.isScrollInertiaEnabled)
+        }
+    }
     
     
     var troubleshootingSettings: some View {
@@ -257,6 +287,10 @@ struct SettingsView: View {
                     parameterSettings
                 }
 
+                Section("Scroll") {
+                    scrollSettings
+                }
+
                 Section {
                     troubleshootingSettings
                 } header: {
@@ -282,6 +316,10 @@ struct SettingsView: View {
                 
                 LegacySection(title: "Parameters") {
                     parameterSettings
+                }
+
+                LegacySection(title: "Scroll") {
+                    scrollSettings
                 }
                 
                 LegacySection(title: "Troubleshooting") {

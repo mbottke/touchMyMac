@@ -16,6 +16,22 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property CGFloat doubleClickTolerance;
 
+/// Enables/disables inertial scrolling after a finger lifts.
+@property (nonatomic) BOOL momentumScrollEnabled;
+
+/// Controls how quickly inertial scrolling slows down per 60Hz frame.
+/// Default matches the built-in tuning.
+@property (nonatomic) CGFloat momentumDecelerationPerFrame;
+
+/// Multiplies the initial inertial velocity at liftoff (1.0 = unchanged).
+@property (nonatomic) CGFloat momentumVelocityMultiplier;
+
+/// Minimum finger velocity (px/s) needed to start inertial scrolling on liftoff.
+@property (nonatomic) CGFloat momentumStartThreshold;
+
+/// Velocity (px/s) below which inertial scrolling stops.
+@property (nonatomic) CGFloat momentumVelocityStopThreshold;
+
 - (CGPoint)currentCursorLocation;
 
 - (void)bringWindowToFrontAt:(CGPoint)aLocation;

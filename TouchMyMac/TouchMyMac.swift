@@ -47,6 +47,10 @@ class TouchMyMac: NSObject, ObservableObject {
     @Published var isSecondaryClickEnabled = false
     @Published var isMagnificationEnabled = false
     @Published var isClickWindowToFrontEnabled = false
+
+    @Published var isScrollInertiaEnabled = true
+    @Published var scrollInertiaDecelerationPerFrame: CGFloat = 0.95
+    @Published var scrollInertiaVelocityMultiplier: CGFloat = 1.0
     
     
     
@@ -375,7 +379,10 @@ extension TouchMyMac {
             "primaryInteractionMode" : PrimaryInteractionMode.directTouch.rawValue,
             "isSecondaryClickEnabled" : true,
             "isMagnificationEnabled" : true,
-            "isClickWindowToFrontEnabled" : false
+            "isClickWindowToFrontEnabled" : false,
+            "isScrollInertiaEnabled" : true,
+            "scrollInertiaDecelerationPerFrame" : 0.95,
+            "scrollInertiaVelocityMultiplier" : 1.0
         ])
         
         holdDuration = defaults.double(forKey: "holdDuration")
@@ -389,7 +396,10 @@ extension TouchMyMac {
             $holdDuration.assign(to: \.holdDuration, on: touchManager),
             $doubleClickDistance.assign(to: \.doubleClickTolerance, on: touchManager),
             $errorResistance.assign(to: \.errorResistance, on: touchManager),
-            $ignoreOriginTouches.assign(to: \.ignoreOriginTouches, on: touchManager)
+            $ignoreOriginTouches.assign(to: \.ignoreOriginTouches, on: touchManager),
+            $isScrollInertiaEnabled.assign(to: \.scrollInertiaEnabled, on: touchManager),
+            $scrollInertiaDecelerationPerFrame.assign(to: \.scrollInertiaDecelerationPerFrame, on: touchManager),
+            $scrollInertiaVelocityMultiplier.assign(to: \.scrollInertiaVelocityMultiplier, on: touchManager)
         ]
         
         
@@ -398,6 +408,13 @@ extension TouchMyMac {
         isSecondaryClickEnabled = defaults.bool(forKey: "isSecondaryClickEnabled")
         isMagnificationEnabled = defaults.bool(forKey: "isMagnificationEnabled")
         isClickWindowToFrontEnabled = defaults.bool(forKey: "isClickWindowToFrontEnabled")
+
+        isScrollInertiaEnabled = defaults.bool(forKey: "isScrollInertiaEnabled")
+        scrollInertiaDecelerationPerFrame = CGFloat(defaults.double(forKey: "scrollInertiaDecelerationPerFrame"))
+        scrollInertiaVelocityMultiplier = CGFloat(defaults.double(forKey: "scrollInertiaVelocityMultiplier"))
+        touchManager.scrollInertiaEnabled = isScrollInertiaEnabled
+        touchManager.scrollInertiaDecelerationPerFrame = scrollInertiaDecelerationPerFrame
+        touchManager.scrollInertiaVelocityMultiplier = scrollInertiaVelocityMultiplier
     }
     
     
@@ -413,6 +430,10 @@ extension TouchMyMac {
         defaults.set(isSecondaryClickEnabled, forKey: "isSecondaryClickEnabled")
         defaults.set(isMagnificationEnabled, forKey: "isMagnificationEnabled")
         defaults.set(isClickWindowToFrontEnabled, forKey: "isClickWindowToFrontEnabled")
+
+        defaults.set(isScrollInertiaEnabled, forKey: "isScrollInertiaEnabled")
+        defaults.set(Double(scrollInertiaDecelerationPerFrame), forKey: "scrollInertiaDecelerationPerFrame")
+        defaults.set(Double(scrollInertiaVelocityMultiplier), forKey: "scrollInertiaVelocityMultiplier")
     }
     
 }
@@ -550,6 +571,18 @@ extension TouchMyMac {
         case \.errorResistance:
             return("Error Resistance",
                    "If your touchscreen is really unreliable at reporting touches, increase this slider to make inputs more stable at the cost of higher latency in detecting liftoffs.")
+
+        case \.isScrollInertiaEnabled:
+            return("Scroll Inertia",
+                   "Keeps scrolling for a short time after you lift your finger (iPad-like).")
+
+        case \.scrollInertiaDecelerationPerFrame:
+            return("Decay Speed",
+                   "Higher values decay slower; lower values decay faster.")
+
+        case \.scrollInertiaVelocityMultiplier:
+            return("Inertia Amount",
+                   "Scales the starting speed of inertial scrolling.")
             
         default:
             return("\(keyPath)", "")

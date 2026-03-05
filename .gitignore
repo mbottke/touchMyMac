@@ -4,6 +4,7 @@
 # Xcode user data
 *.xcuserstate
 xcuserdata/
+TouchMyMac.xcodeproj/project.xcworkspace/xcshareddata/
 
 # Build artifacts
 DerivedData/

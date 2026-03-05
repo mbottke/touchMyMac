@@ -30,9 +30,9 @@
 @implementation TUCCursorUtilities
 
 static const NSTimeInterval kMomentumTickInterval = 1.0 / 60.0;
-static const CGFloat kMomentumVelocityStopThreshold = 5.0;     // px/s
-static const CGFloat kMomentumStartThreshold = 120.0;          // px/s
-static const CGFloat kMomentumDecelerationPerFrame = 0.95;     // 60Hz
+static const CGFloat kDefaultMomentumVelocityStopThreshold = 5.0;     // px/s
+static const CGFloat kDefaultMomentumStartThreshold = 120.0;          // px/s
+static const CGFloat kDefaultMomentumDecelerationPerFrame = 0.95;     // 60Hz
 
 + (TUCCursorUtilities *)sharedInstance {
     static TUCCursorUtilities *sharedInstance;
@@ -48,6 +48,11 @@ static const CGFloat kMomentumDecelerationPerFrame = 0.95;     // 60Hz
             sharedInstance.scrollVelocity = CGPointZero;
             sharedInstance.momentumScrollVelocity = CGPointZero;
             sharedInstance.momentumLastTickTime = 0;
+            sharedInstance.momentumScrollEnabled = YES;
+            sharedInstance.momentumDecelerationPerFrame = kDefaultMomentumDecelerationPerFrame;
+            sharedInstance.momentumVelocityMultiplier = 1.0;
+            sharedInstance.momentumStartThreshold = kDefaultMomentumStartThreshold;
+            sharedInstance.momentumVelocityStopThreshold = kDefaultMomentumVelocityStopThreshold;
         }
     });
     return sharedInstance;
@@ -239,14 +244,19 @@ static inline CFTimeInterval TUCNowSeconds(void) {
         CGPoint v0 = self.scrollVelocity;
         self.scrollVelocity = CGPointZero;
 
-        if (TUCLength(v0) < kMomentumStartThreshold) {
+        if (!self.momentumScrollEnabled) {
+            [self cancelMomentumScroll];
+            return;
+        }
+
+        if (TUCLength(v0) < self.momentumStartThreshold) {
             [self cancelMomentumScroll];
             return;
         }
 
         // Start inertial scrolling from the last measured finger velocity.
         [self cancelMomentumScroll];
-        self.momentumScrollVelocity = v0;
+        self.momentumScrollVelocity = TUCPointScale(v0, self.momentumVelocityMultiplier);
         self.momentumLastTickTime = now;
 
         self.momentumScrollTimer = [NSTimer timerWithTimeInterval:kMomentumTickInterval
@@ -262,6 +272,11 @@ static inline CFTimeInterval TUCNowSeconds(void) {
 
 
 - (void)updateMomentumScroll {
+    if (!self.momentumScrollEnabled) {
+        [self cancelMomentumScroll];
+        return;
+    }
+
     CFTimeInterval now = TUCNowSeconds();
     CFTimeInterval dt = now - self.momentumLastTickTime;
     self.momentumLastTickTime = now;
@@ -272,7 +287,7 @@ static inline CFTimeInterval TUCNowSeconds(void) {
     dt = (CFTimeInterval)TUCClamp((CGFloat)dt, 0.001f, 0.05f);
 
     CGPoint v = self.momentumScrollVelocity;
-    if (fabs(v.x) < kMomentumVelocityStopThreshold && fabs(v.y) < kMomentumVelocityStopThreshold) {
+    if (fabs(v.x) < self.momentumVelocityStopThreshold && fabs(v.y) < self.momentumVelocityStopThreshold) {
         [self cancelMomentumScroll];
         return;
     }
@@ -282,7 +297,7 @@ static inline CFTimeInterval TUCNowSeconds(void) {
 
     // Exponential decay tuned for ~60Hz.
     CGFloat frames = (CGFloat)(dt / kMomentumTickInterval);
-    CGFloat decay = (CGFloat)pow(kMomentumDecelerationPerFrame, frames);
+    CGFloat decay = (CGFloat)pow(self.momentumDecelerationPerFrame, frames);
     self.momentumScrollVelocity = TUCPointScale(v, decay);
 }
 

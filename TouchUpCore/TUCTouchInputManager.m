@@ -37,6 +37,10 @@
 
 @implementation TUCTouchInputManager
 
+@synthesize scrollInertiaEnabled = _scrollInertiaEnabled;
+@synthesize scrollInertiaDecelerationPerFrame = _scrollInertiaDecelerationPerFrame;
+@synthesize scrollInertiaVelocityMultiplier = _scrollInertiaVelocityMultiplier;
+
 static const CGFloat kStationaryThresholdMM = 0.1f;
 static const CGFloat kTapCancelDistanceMM = 4.0f;
 static const CGFloat kTapFallbackDistanceMM = 5.0f;
@@ -822,8 +826,27 @@ static const NSTimeInterval kTouchInactivityTimeout = 0.12;
         self.errorResistance = 0;
         
         self.ignoreOriginTouches = NO;
+
+        self.scrollInertiaEnabled = YES;
+        self.scrollInertiaDecelerationPerFrame = 0.95;
+        self.scrollInertiaVelocityMultiplier = 1.0;
     }
     return self;
+}
+
+- (void)setScrollInertiaEnabled:(BOOL)scrollInertiaEnabled {
+    _scrollInertiaEnabled = scrollInertiaEnabled;
+    [TUCCursorUtilities sharedInstance].momentumScrollEnabled = scrollInertiaEnabled;
+}
+
+- (void)setScrollInertiaDecelerationPerFrame:(CGFloat)scrollInertiaDecelerationPerFrame {
+    _scrollInertiaDecelerationPerFrame = scrollInertiaDecelerationPerFrame;
+    [TUCCursorUtilities sharedInstance].momentumDecelerationPerFrame = scrollInertiaDecelerationPerFrame;
+}
+
+- (void)setScrollInertiaVelocityMultiplier:(CGFloat)scrollInertiaVelocityMultiplier {
+    _scrollInertiaVelocityMultiplier = scrollInertiaVelocityMultiplier;
+    [TUCCursorUtilities sharedInstance].momentumVelocityMultiplier = scrollInertiaVelocityMultiplier;
 }
 
 

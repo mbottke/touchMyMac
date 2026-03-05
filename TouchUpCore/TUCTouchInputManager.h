@@ -48,6 +48,23 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property BOOL ignoreOriginTouches;
 
+/**
+ Enables/disables inertial scrolling after a finger lifts.
+ Default value is YES.
+ */
+@property BOOL scrollInertiaEnabled;
+
+/**
+ Controls how quickly inertial scrolling slows down per 60Hz frame.
+ Default matches the built-in tuning (0.95).
+ */
+@property CGFloat scrollInertiaDecelerationPerFrame;
+
+/**
+ Multiplies the initial inertial velocity at liftoff (1.0 = unchanged).
+ */
+@property CGFloat scrollInertiaVelocityMultiplier;
+
 
 - (void)start;
 
