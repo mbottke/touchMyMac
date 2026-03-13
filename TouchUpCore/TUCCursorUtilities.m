@@ -154,9 +154,17 @@ static inline CFTimeInterval TUCNowSeconds(void) {
         self.cursorClickCount = 1;
     }
     
-    else if ((aLocation.x - self.locationOfLastClick.x) > self.doubleClickTolerance
-             && (aLocation.y - self.locationOfLastClick.y) > self.doubleClickTolerance) {
-        // touch is too far away
+    else {
+        CGFloat dx = aLocation.x - self.locationOfLastClick.x;
+        CGFloat dy = aLocation.y - self.locationOfLastClick.y;
+        CGFloat distance = (CGFloat)sqrt((double)(dx * dx + dy * dy));
+        if (distance > self.doubleClickTolerance) {
+            // Only keep counting when the new click lands close enough to the last one.
+            self.cursorClickCount = 1;
+        }
+    }
+    
+    if (self.cursorClickCount < 1) {
         self.cursorClickCount = 1;
     }
 }
