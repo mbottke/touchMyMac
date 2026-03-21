@@ -61,15 +61,6 @@ struct SettingsView: View {
     
     var gestureSettings: some View {
         Group {
-            Picker(selection: $model.primaryInteractionMode) {
-                Text("Direct Touch").tag(PrimaryInteractionMode.directTouch)
-                Text("Move Cursor").tag(PrimaryInteractionMode.moveCursor)
-                Text("Point and Click").tag(PrimaryInteractionMode.pointAndClick)
-            } label: {
-                SettingsExplanationLabel(labels: model.uiLabels(for: \.primaryInteractionMode))
-            }
-
-            
             Toggle(isOn: $model.isSecondaryClickEnabled) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.isSecondaryClickEnabled))
             }

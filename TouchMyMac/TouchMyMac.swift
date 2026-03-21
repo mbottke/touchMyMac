@@ -15,12 +15,6 @@ struct DiagnosticsEvent: Identifiable {
     let message: String
 }
 
-enum PrimaryInteractionMode: Int, CaseIterable {
-    case directTouch
-    case moveCursor
-    case pointAndClick
-}
-
 class TouchMyMac: NSObject, ObservableObject {
     
     let touchManager: TUCTouchInputManager
@@ -43,7 +37,6 @@ class TouchMyMac: NSObject, ObservableObject {
     
     
     
-    @Published var primaryInteractionMode: PrimaryInteractionMode = .directTouch
     @Published var isSecondaryClickEnabled = false
     @Published var isMagnificationEnabled = false
     @Published var isClickWindowToFrontEnabled = false
@@ -337,7 +330,7 @@ class TouchMyMac: NSObject, ObservableObject {
         if touchUpdateCount == 0 {
             return "No touch reports received yet."
         }
-        return "Touch reports are flowing. If output still fails, test another mode and restart input pipeline."
+        return "Touch reports are flowing. If output still fails, inspect diagnostics and restart input pipeline."
     }
     
     func sendTestClickAtCursor() {
@@ -375,8 +368,6 @@ extension TouchMyMac {
             "doubleClickDistance" : 8,
             "errorResistance" : 4,
             "ignoreOriginTouches" : true,
-            
-            "primaryInteractionMode" : PrimaryInteractionMode.directTouch.rawValue,
             "isSecondaryClickEnabled" : true,
             "isMagnificationEnabled" : true,
             "isClickWindowToFrontEnabled" : false,
@@ -389,6 +380,7 @@ extension TouchMyMac {
         doubleClickDistance = defaults.double(forKey: "doubleClickDistance")
         errorResistance = defaults.integer(forKey: "errorResistance")
         ignoreOriginTouches = defaults.bool(forKey: "ignoreOriginTouches")
+        defaults.removeObject(forKey: "primaryInteractionMode")
         
         
         self.observers = [
@@ -404,7 +396,6 @@ extension TouchMyMac {
         
         
         
-        primaryInteractionMode = PrimaryInteractionMode(rawValue: defaults.integer(forKey: "primaryInteractionMode")) ?? .directTouch
         isSecondaryClickEnabled = defaults.bool(forKey: "isSecondaryClickEnabled")
         isMagnificationEnabled = defaults.bool(forKey: "isMagnificationEnabled")
         isClickWindowToFrontEnabled = defaults.bool(forKey: "isClickWindowToFrontEnabled")
@@ -426,7 +417,6 @@ extension TouchMyMac {
         defaults.set(errorResistance, forKey: "errorResistance")
         defaults.set(ignoreOriginTouches, forKey: "ignoreOriginTouches")
         
-        defaults.set(primaryInteractionMode.rawValue, forKey: "primaryInteractionMode")
         defaults.set(isSecondaryClickEnabled, forKey: "isSecondaryClickEnabled")
         defaults.set(isMagnificationEnabled, forKey: "isMagnificationEnabled")
         defaults.set(isClickWindowToFrontEnabled, forKey: "isClickWindowToFrontEnabled")
@@ -467,14 +457,7 @@ extension TouchMyMac: TUCTouchDelegate {
             action = .click
             
         case .TUCCursorGestureDrag:
-            switch primaryInteractionMode {
-            case .directTouch:
-                action = .scroll
-            case .moveCursor:
-                action = .move
-            case .pointAndClick:
-                action = .pointAndClick
-            }
+            action = .scroll
             
         case .TUCCursorGestureHoldAndDrag:
             action = .drag
@@ -539,10 +522,6 @@ extension TouchMyMac {
         case \.connectedTouchscreen:
             return("Assign Mouse Events to",
                    "Specifies which screen should receive the touch events.")
-            
-        case \.primaryInteractionMode:
-            return("Interaction Mode",
-                   "Direct Touch combines one-finger scroll with tap-to-click. Cursor modes are available when you want trackpad-like input.")
             
         case \.isSecondaryClickEnabled:
             return("Secondary Click",
