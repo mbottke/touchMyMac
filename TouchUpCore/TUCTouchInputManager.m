@@ -29,6 +29,17 @@
 @property CGPoint lastScrollLocation;
 
 @property TUCCursorGesture identifiedMultitouchGesture;
+@property CGPoint threeFingerSwipeStartCentroid;
+@property BOOL threeFingerSwipeTriggered;
+@property BOOL threeFingerSwipeTracking;
+@property NSInteger debugProcessFrameID;
+@property NSInteger debugActiveTouchCount;
+@property BOOL debugThreeFingerTracking;
+@property BOOL debugThreeFingerTriggered;
+@property NSInteger debugThreeFingerTouchCount;
+@property NSInteger debugThreeFingerUpwardTouchCount;
+@property CGFloat debugThreeFingerVerticalTravelMM;
+@property CGFloat debugThreeFingerHorizontalTravelMM;
 
 @property (strong) NSTimer *touchInactivityTimer;
 
@@ -47,6 +58,8 @@ static const CGFloat kTapFallbackDistanceMM = 5.0f;
 static const NSTimeInterval kTapFallbackDuration = 0.25;
 static const CGFloat kScrollReanchorDistanceMM = 25.0f;
 static const NSTimeInterval kTouchInactivityTimeout = 0.12;
+static const CGFloat kThreeFingerSwipeTriggerTravelMM = 18.0f;
+static const CGFloat kThreeFingerSwipeMaxHorizontalTravelMM = 18.0f;
 
 #pragma mark   Start & Stop
 
@@ -112,8 +125,11 @@ static const NSTimeInterval kTouchInactivityTimeout = 0.12;
     }
     
     ++self.currentFrameID;
+    self.debugProcessFrameID = self.currentFrameID;
+    self.debugActiveTouchCount = (NSInteger)[[self activeTouches] count];
     
     [self processTouchesForCursorInput];
+    [self.delegate inputDiagnosticsDidChange];
     
 }
 
@@ -175,6 +191,56 @@ static const NSTimeInterval kTouchInactivityTimeout = 0.12;
     return [self distanceMMFromPoint:self.cursorTouch.location toPoint:self.cursorTouchStartLocation];
 }
 
+- (void)resetThreeFingerSwipeTracking {
+    self.threeFingerSwipeTracking = NO;
+    self.threeFingerSwipeTriggered = NO;
+    self.threeFingerSwipeStartCentroid = CGPointZero;
+    self.debugThreeFingerTracking = NO;
+    self.debugThreeFingerTriggered = NO;
+    self.debugThreeFingerTouchCount = 0;
+    self.debugThreeFingerUpwardTouchCount = 0;
+    self.debugThreeFingerVerticalTravelMM = 0;
+    self.debugThreeFingerHorizontalTravelMM = 0;
+}
+
+- (CGPoint)centroidForTouches:(NSArray<TUCTouch *> *)touches {
+    if (touches.count == 0) {
+        return CGPointZero;
+    }
+
+    CGFloat x = 0;
+    CGFloat y = 0;
+    for (TUCTouch *touch in touches) {
+        x += touch.location.x;
+        y += touch.location.y;
+    }
+
+    CGFloat count = (CGFloat)touches.count;
+    return CGPointMake(x / count, y / count);
+}
+
+- (NSInteger)upwardTouchCountForTouches:(NSArray<TUCTouch *> *)touches
+                           hasDownward:(BOOL *)hasDownward {
+    NSInteger upwardTouches = 0;
+    BOOL foundDownward = NO;
+
+    for (TUCTouch *touch in touches) {
+        CGPoint trajectory = [touch trajectory];
+        if (trajectory.y > 0) {
+            foundDownward = YES;
+        }
+        if (trajectory.y < 0 && fabs(trajectory.y) >= fabs(trajectory.x)) {
+            upwardTouches += 1;
+        }
+    }
+
+    if (hasDownward != NULL) {
+        *hasDownward = foundDownward;
+    }
+
+    return upwardTouches;
+}
+
 
 - (void)stopCurrentGesture {
     [[TUCCursorUtilities sharedInstance] stopDraggingCursor];
@@ -183,6 +249,8 @@ static const NSTimeInterval kTouchInactivityTimeout = 0.12;
     self.lastPerformedAction = TUCCursorActionNone;
 
     self.identifiedMultitouchGesture = _TUCCursorGestureNone;
+    self.gestureAdditionalTouch = nil;
+    [self resetThreeFingerSwipeTracking];
 }
 
 
@@ -285,7 +353,7 @@ static const NSTimeInterval kTouchInactivityTimeout = 0.12;
     NSArray<TUCTouch *> *touches = [[self activeTouches] allObjects];
     NSTouchPhase phase = cursorTouch.phase;
     
-    // Hard guard against a latched two-finger gesture when one contact goes stale.
+    // Hard guard against a latched multi-touch gesture when contacts go stale.
     if (self.identifiedMultitouchGesture == TUCCursorGesturePinch) {
         BOOL hasTwoTouches = [touches count] >= 2;
         BOOL cursorFresh = cursorTouch.isActive && (cursorTouch.lastUpdated + self.errorResistance >= self.currentFrameID);
@@ -298,8 +366,46 @@ static const NSTimeInterval kTouchInactivityTimeout = 0.12;
             [self stopCurrentGesture];
         }
     }
-    
-    
+
+    if (self.threeFingerSwipeTracking && [touches count] != 3) {
+        [self resetThreeFingerSwipeTracking];
+    }
+
+    if ([touches count] == 3 && [touches containsObject:cursorTouch]) {
+        if (!self.threeFingerSwipeTracking) {
+            self.threeFingerSwipeTracking = YES;
+            self.threeFingerSwipeTriggered = NO;
+            self.threeFingerSwipeStartCentroid = [self centroidForTouches:touches];
+        }
+
+        CGPoint centroid = [self centroidForTouches:touches];
+        CGSize physicalSize = [self touchscreen].physicalSize;
+        CGFloat verticalTravelMM = (self.threeFingerSwipeStartCentroid.y - centroid.y) * physicalSize.height;
+        CGFloat horizontalTravelMM = fabs((centroid.x - self.threeFingerSwipeStartCentroid.x) * physicalSize.width);
+
+        BOOL hasDownward = NO;
+        NSInteger upwardTouchCount = [self upwardTouchCountForTouches:touches hasDownward:&hasDownward];
+        BOOL shouldTrigger = !hasDownward
+            && upwardTouchCount >= 2
+            && verticalTravelMM >= kThreeFingerSwipeTriggerTravelMM
+            && horizontalTravelMM <= kThreeFingerSwipeMaxHorizontalTravelMM;
+
+        self.debugThreeFingerTracking = YES;
+        self.debugThreeFingerTriggered = self.threeFingerSwipeTriggered;
+        self.debugThreeFingerTouchCount = touches.count;
+        self.debugThreeFingerUpwardTouchCount = upwardTouchCount;
+        self.debugThreeFingerVerticalTravelMM = verticalTravelMM;
+        self.debugThreeFingerHorizontalTravelMM = horizontalTravelMM;
+
+        if (!self.threeFingerSwipeTriggered && shouldTrigger) {
+            [self performMouseEventForGesture:TUCCursorGestureThreeFingerSwipeUp];
+            self.threeFingerSwipeTriggered = YES;
+            self.debugThreeFingerTriggered = YES;
+        }
+
+        return;
+    }
+
     if (phase == NSTouchPhaseBegan) {
         [self performMouseEventForGesture:TUCCursorGestureTouchDown];
         return;
@@ -360,7 +466,7 @@ static const NSTimeInterval kTouchInactivityTimeout = 0.12;
     if ([self checkForSecondaryClick]) {
         return;
     }
-    
+
     // If a two-finger gesture ended but one finger remains, clear the old gesture state.
     if (self.identifiedMultitouchGesture != _TUCCursorGestureNone
         && (self.gestureAdditionalTouch == nil || !self.gestureAdditionalTouch.isActive)) {
@@ -432,6 +538,10 @@ static const NSTimeInterval kTouchInactivityTimeout = 0.12;
 //    if (self.identifiedMultitouchGesture != _TUCCursorGestureNone) {
 //        return NO;
 //    }
+
+    if (self.cursorTouch == nil || self.cursorTouchBeganDate == nil) {
+        return NO;
+    }
     
     NSSet<TUCTouch *> *touchesInProximity = [self touchesInProximityTo:self.cursorTouch.location maxDistance:60];
     if (touchesInProximity.count >= 2 && self.identifiedMultitouchGesture == _TUCCursorGestureNone) {
@@ -445,7 +555,15 @@ static const NSTimeInterval kTouchInactivityTimeout = 0.12;
         NSPredicate *p4 = [NSCompoundPredicate orPredicateWithSubpredicates:@[p1, p2]];
         NSPredicate *p5 = [NSCompoundPredicate andPredicateWithSubpredicates:@[p3, p4]];
 
-        NSSet<TUCTouch *> *endedTouches = [touchesInProximity filteredSetUsingPredicate:p5];
+        NSPredicate *p6 = [NSPredicate predicateWithBlock:^BOOL(TUCTouch *touch, NSDictionary *bindings) {
+            NSDate *lastUpdatedAt = touch.lastUpdatedAt;
+            if (lastUpdatedAt == nil) {
+                return NO;
+            }
+            return [lastUpdatedAt compare:self.cursorTouchBeganDate] != NSOrderedAscending;
+        }];
+
+        NSSet<TUCTouch *> *endedTouches = [touchesInProximity filteredSetUsingPredicate:[NSCompoundPredicate andPredicateWithSubpredicates:@[p5, p6]]];
 
         if (endedTouches.count == 1) {
             for (TUCTouch* touchToRemove in endedTouches) {
@@ -493,14 +611,6 @@ static const NSTimeInterval kTouchInactivityTimeout = 0.12;
             
         case TUCCursorActionMove:
             [utils moveCursorTo:screenLocation];
-            break;
-            
-        case TUCCursorActionMoveClickIfNeeded:
-            [utils moveCursorTo:screenLocation];
-            if ([self isLocationOutsideFrontmostWindow:screenLocation]) {
-                [utils performClickAt:screenLocation];
-            }
-            
             break;
             
         case TUCCursorActionPointAndClick:
@@ -559,6 +669,10 @@ static const NSTimeInterval kTouchInactivityTimeout = 0.12;
                 [utils stopMagnifying];
             }
             break;
+
+        case TUCCursorActionMissionControl:
+            [utils performMissionControl];
+            break;
     }
 }
 
@@ -570,15 +684,15 @@ static const NSTimeInterval kTouchInactivityTimeout = 0.12;
     }
     
     switch(gesture) {
-        case TUCCursorGestureTouchDown:         return TUCCursorActionMoveClickIfNeeded;
+        case TUCCursorGestureTouchDown:         return TUCCursorActionMove;
         case TUCCursorGestureTap:               return TUCCursorActionClick;
         case TUCCursorGestureLongPress:         return TUCCursorActionClick;
         case TUCCursorGestureDrag:              return TUCCursorActionScroll;
         case TUCCursorGestureHoldAndDrag:       return TUCCursorActionDrag;
         case TUCCursorGestureTapSecondFinger:   return TUCCursorActionSecondaryClick;
         case TUCCursorGestureTwoFingerDrag:     return TUCCursorActionDrag;
-            
         case TUCCursorGesturePinch:             return TUCCursorActionMagnify;
+        case TUCCursorGestureThreeFingerSwipeUp:return TUCCursorActionMissionControl;
         case _TUCCursorGestureNone:             return TUCCursorActionNone;
     }
 }

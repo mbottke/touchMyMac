@@ -76,6 +76,22 @@ struct DebugView: View {
                                       y: geo.size.height * point.location.y)
                             
                         }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Input Frame: \(model.inputProcessFrameID)")
+                            Text("Input Active Touches: \(model.inputActiveTouchCount)")
+                            Text("3F Session: \(model.threeFingerTracking ? "Active" : "Idle")")
+                            Text("3F Triggered: \(model.threeFingerTriggered ? "Yes" : "No")")
+                            Text("3F Touches/Upward: \(model.threeFingerTouchCount)/\(model.threeFingerUpwardTouchCount)")
+                            Text(String(format: "3F Travel V/H: %.1f / %.1f mm", model.threeFingerVerticalTravelMM, model.threeFingerHorizontalTravelMM))
+                        }
+                        .font(.system(size: 24, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white)
+                        .padding(12)
+                        .background(Color.black.opacity(0.55))
+                        .cornerRadius(10)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .padding(24)
                         
                         
                     }
@@ -102,6 +118,7 @@ struct DebugView: View {
             .keyboardShortcut(KeyEquivalent("w"), modifiers: [.command])
             .padding(.bottom, 140)
         }
+        .id(model.inputProcessFrameID)
         }
         
             

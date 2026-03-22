@@ -6,6 +6,7 @@
 //
 
 #import "TUCCursorUtilities.h"
+#import <Carbon/Carbon.h>
 
 @interface TUCCursorUtilities ()
 
@@ -33,6 +34,9 @@ static const NSTimeInterval kMomentumTickInterval = 1.0 / 60.0;
 static const CGFloat kDefaultMomentumVelocityStopThreshold = 5.0;     // px/s
 static const CGFloat kDefaultMomentumStartThreshold = 120.0;          // px/s
 static const CGFloat kDefaultMomentumDecelerationPerFrame = 0.95;     // 60Hz
+static const CGKeyCode kUpArrowKeyCode = 126;
+static const CGKeyCode kControlKeyCode = kVK_Control;
+static NSString * const kMissionControlAppPath = @"/System/Applications/Mission Control.app";
 
 + (TUCCursorUtilities *)sharedInstance {
     static TUCCursorUtilities *sharedInstance;
@@ -107,26 +111,6 @@ static inline CFTimeInterval TUCNowSeconds(void) {
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
 }
-
-
-
-- (void)bringWindowToFrontAt:(CGPoint)aLocation {
-    CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown, aLocation, kCGMouseButtonLeft);
-    CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);
-    CGEventTimestamp time = CGEventGetTimestamp(event);
-    CGEventSetTimestamp(event, time-1);
-    
-    CGEventPost(kCGHIDEventTap, event);
-    CGEventSetType(event, kCGEventLeftMouseDragged);
-    CGEventPost(kCGHIDEventTap, event);
-    CGEventSetLocation(event, aLocation);
-    CGEventSetType(event, kCGEventLeftMouseUp);
-    CGEventPost(kCGHIDEventTap, event);
-    
-    CFRelease(event);
-    //    self.isLeftMouseDown = YES;
-}
-
 /**
  integrated double click support: needs checks time between clicks and spatial distance
  */
@@ -393,6 +377,54 @@ static inline CFTimeInterval TUCNowSeconds(void) {
         self.isMagnifying = NO;
         [self magnify:0 phase:NSTouchPhaseEnded];
     }
+}
+
+- (void)performMissionControl {
+    [self cancelMomentumScroll];
+    [self stopDraggingCursor];
+    [self stopMagnifying];
+
+    NSURL *missionControlURL = [NSURL fileURLWithPath:kMissionControlAppPath];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:kMissionControlAppPath]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [[NSWorkspace sharedWorkspace] openURL:missionControlURL];
+        });
+    }
+
+    CGEventRef controlDown = CGEventCreateKeyboardEvent(NULL, kControlKeyCode, true);
+    CGEventRef upDown = CGEventCreateKeyboardEvent(NULL, kUpArrowKeyCode, true);
+    CGEventRef upUp = CGEventCreateKeyboardEvent(NULL, kUpArrowKeyCode, false);
+    CGEventRef controlUp = CGEventCreateKeyboardEvent(NULL, kControlKeyCode, false);
+
+    if (controlDown == NULL || upDown == NULL || upUp == NULL || controlUp == NULL) {
+        if (controlDown != NULL) {
+            CFRelease(controlDown);
+        }
+        if (upDown != NULL) {
+            CFRelease(upDown);
+        }
+        if (upUp != NULL) {
+            CFRelease(upUp);
+        }
+        if (controlUp != NULL) {
+            CFRelease(controlUp);
+        }
+        return;
+    }
+
+    CGEventSetFlags(controlDown, kCGEventFlagMaskControl);
+    CGEventSetFlags(upDown, kCGEventFlagMaskControl);
+    CGEventSetFlags(upUp, kCGEventFlagMaskControl);
+
+    CGEventPost(kCGHIDEventTap, controlDown);
+    CGEventPost(kCGHIDEventTap, upDown);
+    CGEventPost(kCGHIDEventTap, upUp);
+    CGEventPost(kCGHIDEventTap, controlUp);
+
+    CFRelease(controlDown);
+    CFRelease(upDown);
+    CFRelease(upUp);
+    CFRelease(controlUp);
 }
 
 @end

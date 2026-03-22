@@ -15,6 +15,17 @@ struct DiagnosticsEvent: Identifiable {
     let message: String
 }
 
+struct TouchManagerDiagnosticsSnapshot {
+    let inputProcessFrameID: Int
+    let inputActiveTouchCount: Int
+    let threeFingerTracking: Bool
+    let threeFingerTriggered: Bool
+    let threeFingerTouchCount: Int
+    let threeFingerUpwardTouchCount: Int
+    let threeFingerVerticalTravelMM: CGFloat
+    let threeFingerHorizontalTravelMM: CGFloat
+}
+
 class TouchMyMac: NSObject, ObservableObject {
     
     let touchManager: TUCTouchInputManager
@@ -39,7 +50,6 @@ class TouchMyMac: NSObject, ObservableObject {
     
     @Published var isSecondaryClickEnabled = false
     @Published var isMagnificationEnabled = false
-    @Published var isClickWindowToFrontEnabled = false
 
     @Published var isScrollInertiaEnabled = true
     @Published var scrollInertiaDecelerationPerFrame: CGFloat = 0.95
@@ -71,6 +81,14 @@ class TouchMyMac: NSObject, ObservableObject {
     @Published var hidConnectCount: Int = 0
     @Published var hidDisconnectCount: Int = 0
     @Published var diagnosticsEvents: [DiagnosticsEvent] = []
+    @Published var inputProcessFrameID: Int = 0
+    @Published var inputActiveTouchCount: Int = 0
+    @Published var threeFingerTracking: Bool = false
+    @Published var threeFingerTriggered: Bool = false
+    @Published var threeFingerTouchCount: Int = 0
+    @Published var threeFingerUpwardTouchCount: Int = 0
+    @Published var threeFingerVerticalTravelMM: CGFloat = 0
+    @Published var threeFingerHorizontalTravelMM: CGFloat = 0
     
     private var lastGestureLogAt: Date?
     private var lastGestureSignature: String = ""
@@ -236,6 +254,14 @@ class TouchMyMac: NSObject, ObservableObject {
         hidConnectCount = 0
         hidDisconnectCount = 0
         diagnosticsEvents = []
+        inputProcessFrameID = 0
+        inputActiveTouchCount = 0
+        threeFingerTracking = false
+        threeFingerTriggered = false
+        threeFingerTouchCount = 0
+        threeFingerUpwardTouchCount = 0
+        threeFingerVerticalTravelMM = 0
+        threeFingerHorizontalTravelMM = 0
         addDiagnosticsEvent("Diagnostics reset")
     }
     
@@ -260,9 +286,17 @@ class TouchMyMac: NSObject, ObservableObject {
     }
     
     func addDiagnosticsEvent(_ message: String) {
-        diagnosticsEvents.insert(DiagnosticsEvent(message: message), at: 0)
-        if diagnosticsEvents.count > 40 {
-            diagnosticsEvents.removeLast(diagnosticsEvents.count - 40)
+        let applyEvent = {
+            self.diagnosticsEvents.insert(DiagnosticsEvent(message: message), at: 0)
+            if self.diagnosticsEvents.count > 40 {
+                self.diagnosticsEvents.removeLast(self.diagnosticsEvents.count - 40)
+            }
+        }
+
+        if Thread.isMainThread {
+            applyEvent()
+        } else {
+            DispatchQueue.main.async(execute: applyEvent)
         }
     }
     
@@ -276,6 +310,7 @@ class TouchMyMac: NSObject, ObservableObject {
         case .TUCCursorGestureTapSecondFinger: return "Second-Finger Tap"
         case .TUCCursorGestureTwoFingerDrag: return "Two-Finger Drag"
         case .TUCCursorGesturePinch: return "Pinch"
+        case .TUCCursorGestureThreeFingerSwipeUp: return "Three-Finger Swipe Up"
         default: return "Unknown (\(gesture.rawValue))"
         }
     }
@@ -284,13 +319,13 @@ class TouchMyMac: NSObject, ObservableObject {
         switch action {
         case .none: return "None"
         case .move: return "Move Cursor"
-        case .moveClickIfNeeded: return "Move + Bring To Front"
         case .pointAndClick: return "Point and Click"
         case .drag: return "Drag"
         case .click: return "Click"
         case .secondaryClick: return "Secondary Click"
         case .scroll: return "Scroll"
         case .magnify: return "Magnify"
+        case .missionControl: return "Mission Control"
         @unknown default: return "Unknown"
         }
     }
@@ -370,7 +405,6 @@ extension TouchMyMac {
             "ignoreOriginTouches" : true,
             "isSecondaryClickEnabled" : true,
             "isMagnificationEnabled" : true,
-            "isClickWindowToFrontEnabled" : false,
             "isScrollInertiaEnabled" : true,
             "scrollInertiaDecelerationPerFrame" : 0.95,
             "scrollInertiaVelocityMultiplier" : 1.0
@@ -381,6 +415,7 @@ extension TouchMyMac {
         errorResistance = defaults.integer(forKey: "errorResistance")
         ignoreOriginTouches = defaults.bool(forKey: "ignoreOriginTouches")
         defaults.removeObject(forKey: "primaryInteractionMode")
+        defaults.removeObject(forKey: "isClickWindowToFrontEnabled")
         
         
         self.observers = [
@@ -398,7 +433,6 @@ extension TouchMyMac {
         
         isSecondaryClickEnabled = defaults.bool(forKey: "isSecondaryClickEnabled")
         isMagnificationEnabled = defaults.bool(forKey: "isMagnificationEnabled")
-        isClickWindowToFrontEnabled = defaults.bool(forKey: "isClickWindowToFrontEnabled")
 
         isScrollInertiaEnabled = defaults.bool(forKey: "isScrollInertiaEnabled")
         scrollInertiaDecelerationPerFrame = CGFloat(defaults.double(forKey: "scrollInertiaDecelerationPerFrame"))
@@ -419,7 +453,6 @@ extension TouchMyMac {
         
         defaults.set(isSecondaryClickEnabled, forKey: "isSecondaryClickEnabled")
         defaults.set(isMagnificationEnabled, forKey: "isMagnificationEnabled")
-        defaults.set(isClickWindowToFrontEnabled, forKey: "isClickWindowToFrontEnabled")
 
         defaults.set(isScrollInertiaEnabled, forKey: "isScrollInertiaEnabled")
         defaults.set(Double(scrollInertiaDecelerationPerFrame), forKey: "scrollInertiaDecelerationPerFrame")
@@ -431,11 +464,58 @@ extension TouchMyMac {
 
 
 extension TouchMyMac: TUCTouchDelegate {
+    func performUIUpdate(_ updates: @escaping () -> Void) {
+        if Thread.isMainThread {
+            updates()
+        } else {
+            DispatchQueue.main.async(execute: updates)
+        }
+    }
+
+    func captureTouchManagerDiagnostics() -> TouchManagerDiagnosticsSnapshot {
+        TouchManagerDiagnosticsSnapshot(
+            inputProcessFrameID: Int(touchManager.debugProcessFrameID),
+            inputActiveTouchCount: Int(touchManager.debugActiveTouchCount),
+            threeFingerTracking: touchManager.debugThreeFingerTracking,
+            threeFingerTriggered: touchManager.debugThreeFingerTriggered,
+            threeFingerTouchCount: Int(touchManager.debugThreeFingerTouchCount),
+            threeFingerUpwardTouchCount: Int(touchManager.debugThreeFingerUpwardTouchCount),
+            threeFingerVerticalTravelMM: touchManager.debugThreeFingerVerticalTravelMM,
+            threeFingerHorizontalTravelMM: touchManager.debugThreeFingerHorizontalTravelMM
+        )
+    }
+
+    func applyTouchManagerDiagnostics(_ snapshot: TouchManagerDiagnosticsSnapshot) {
+        inputProcessFrameID = snapshot.inputProcessFrameID
+        inputActiveTouchCount = snapshot.inputActiveTouchCount
+        threeFingerTracking = snapshot.threeFingerTracking
+        threeFingerTriggered = snapshot.threeFingerTriggered
+        threeFingerTouchCount = snapshot.threeFingerTouchCount
+        threeFingerUpwardTouchCount = snapshot.threeFingerUpwardTouchCount
+        threeFingerVerticalTravelMM = snapshot.threeFingerVerticalTravelMM
+        threeFingerHorizontalTravelMM = snapshot.threeFingerHorizontalTravelMM
+    }
+
     func touchesDidChange() {
-        self.touches = self.touchManager.touchSet.allObjects as! [TUCTouch]
-        self.touchUpdateCount += 1
-        self.lastTouchUpdateAt = Date()
-        self.lastActiveTouchCount = touches.filter { $0.isActive() }.count
+        let touchSnapshot = (self.touchManager.touchSet.allObjects as? [TUCTouch]) ?? []
+        let lastTouchUpdateAt = Date()
+        let activeTouchCount = touchSnapshot.filter { $0.isActive() }.count
+        let diagnosticsSnapshot = captureTouchManagerDiagnostics()
+
+        performUIUpdate {
+            self.touches = touchSnapshot
+            self.touchUpdateCount += 1
+            self.lastTouchUpdateAt = lastTouchUpdateAt
+            self.lastActiveTouchCount = activeTouchCount
+            self.applyTouchManagerDiagnostics(diagnosticsSnapshot)
+        }
+    }
+
+    func inputDiagnosticsDidChange() {
+        let diagnosticsSnapshot = captureTouchManagerDiagnostics()
+        performUIUpdate {
+            self.applyTouchManagerDiagnostics(diagnosticsSnapshot)
+        }
     }
     
     
@@ -448,7 +528,7 @@ extension TouchMyMac: TUCTouchDelegate {
         let action: TUCCursorAction
         switch gesture {
         case .TUCCursorGestureTouchDown:
-            action = isClickWindowToFrontEnabled ? .moveClickIfNeeded : .move
+            action = .move
             
         case .TUCCursorGestureTap:
             action = .click
@@ -470,20 +550,25 @@ extension TouchMyMac: TUCTouchDelegate {
             
         case .TUCCursorGesturePinch:
             action = isMagnificationEnabled ? .magnify : .none
+
+        case .TUCCursorGestureThreeFingerSwipeUp:
+            action = .missionControl
             
         default:
             action = .none
         }
         
-        gestureDecisionCount += 1
-        lastGestureDecisionAt = Date()
         let gestureName = gestureDisplayName(gesture)
         let actionName = actionDisplayName(action)
-        lastGestureName = gestureName
-        lastActionName = actionName
-        currentGestureName = gestureName
-        currentActionName = actionName
-        addGestureEventIfNeeded(gestureName: gestureName, actionName: actionName)
+        performUIUpdate {
+            self.gestureDecisionCount += 1
+            self.lastGestureDecisionAt = Date()
+            self.lastGestureName = gestureName
+            self.lastActionName = actionName
+            self.currentGestureName = gestureName
+            self.currentActionName = actionName
+            self.addGestureEventIfNeeded(gestureName: gestureName, actionName: actionName)
+        }
         
         return action
     }
@@ -491,23 +576,27 @@ extension TouchMyMac: TUCTouchDelegate {
     
     
     func touchscreenDidConnect() {
-        hidConnectCount += 1
-        addDiagnosticsEvent("Touchscreen HID connected")
-        self.lastDateScreenAdded = Date()
-        
-        if !self.identifyHotPlug() {
-            if self.connectionState.isConnected {
-                self.connectionState = .uncertain
+        performUIUpdate {
+            self.hidConnectCount += 1
+            self.addDiagnosticsEvent("Touchscreen HID connected")
+            self.lastDateScreenAdded = Date()
+            
+            if !self.identifyHotPlug() {
+                if self.connectionState.isConnected {
+                    self.connectionState = .uncertain
+                }
             }
+            
+            self.identifyPreferredOrNoScreen()
         }
-        
-        self.identifyPreferredOrNoScreen()
     }
     
     func touchscreenDidDisconnect() {
-        hidDisconnectCount += 1
-        addDiagnosticsEvent("Touchscreen HID disconnected")
-        self.connectionState = .disconnected
+        performUIUpdate {
+            self.hidDisconnectCount += 1
+            self.addDiagnosticsEvent("Touchscreen HID disconnected")
+            self.connectionState = .disconnected
+        }
     }
 }
 
@@ -530,10 +619,6 @@ extension TouchMyMac {
         case \.isMagnificationEnabled:
             return("Magnification",
                    "Pinch two fingers to increase or decrease the size of the content. (EXPERIMENTAL)")
-            
-        case \.isClickWindowToFrontEnabled:
-            return("Bring Windows to Front",
-                   "When touching a window that is not frontmost, bring it to front first. (EXPERIMENTAL)")
             
         case \.holdDuration:
             return("Hold Duration",

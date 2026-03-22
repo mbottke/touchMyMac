@@ -65,6 +65,15 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property CGFloat scrollInertiaVelocityMultiplier;
 
+@property (readonly) NSInteger debugProcessFrameID;
+@property (readonly) NSInteger debugActiveTouchCount;
+@property (readonly) BOOL debugThreeFingerTracking;
+@property (readonly) BOOL debugThreeFingerTriggered;
+@property (readonly) NSInteger debugThreeFingerTouchCount;
+@property (readonly) NSInteger debugThreeFingerUpwardTouchCount;
+@property (readonly) CGFloat debugThreeFingerVerticalTravelMM;
+@property (readonly) CGFloat debugThreeFingerHorizontalTravelMM;
+
 
 - (void)start;
 

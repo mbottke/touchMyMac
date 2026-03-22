@@ -68,10 +68,6 @@ struct SettingsView: View {
             Toggle(isOn: $model.isMagnificationEnabled) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.isMagnificationEnabled))
             }
-            
-            Toggle(isOn: $model.isClickWindowToFrontEnabled) {
-                SettingsExplanationLabel(labels: model.uiLabels(for: \.isClickWindowToFrontEnabled))
-            }
         }
     }
     
@@ -172,6 +168,12 @@ struct SettingsView: View {
                 Text("Current Gesture: \(model.currentGestureName)")
                 Text("Current Action: \(model.currentActionName)")
                 Text("Last Gesture -> Action: \(model.lastGestureName) -> \(model.lastActionName)")
+                Text("Input Frame: \(model.inputProcessFrameID)")
+                Text("Input Active Touches: \(model.inputActiveTouchCount)")
+                Text("3F Session: \(model.threeFingerTracking ? "Active" : "Idle")")
+                Text("3F Triggered: \(model.threeFingerTriggered ? "Yes" : "No")")
+                Text("3F Touches/Upward: \(model.threeFingerTouchCount)/\(model.threeFingerUpwardTouchCount)")
+                Text(String(format: "3F Travel V/H: %.1f / %.1f mm", model.threeFingerVerticalTravelMM, model.threeFingerHorizontalTravelMM))
                 Text("HID Connect/Disconnect: \(model.hidConnectCount)/\(model.hidDisconnectCount)")
                 Text("Last Touch Update: \(formatDate(model.lastTouchUpdateAt))")
             }

@@ -20,6 +20,7 @@ NS_ASSUME_NONNULL_BEGIN
  This method is called every time after the `touchSet` was updated
  */
 - (void)touchesDidChange;
+- (void)inputDiagnosticsDidChange;
 
 
 

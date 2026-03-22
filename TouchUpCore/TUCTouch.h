@@ -19,20 +19,21 @@ typedef NS_OPTIONS(NSUInteger, TUCCursorGesture) {
     TUCCursorGestureHoldAndDrag     = 1 << 5,
     TUCCursorGestureTapSecondFinger = 1 << 6,
     TUCCursorGestureTwoFingerDrag   = 1 << 7,
-    TUCCursorGesturePinch           = 1 << 8  // internal: pinch cannot be remapped
+    TUCCursorGesturePinch           = 1 << 8, // internal: pinch cannot be remapped
+    TUCCursorGestureThreeFingerSwipeUp = 1 << 9
 };
 
 
 typedef NS_ENUM(NSUInteger, TUCCursorAction) {
     TUCCursorActionNone,
     TUCCursorActionMove,
-    TUCCursorActionMoveClickIfNeeded,  // moves cursor: if location is not in frontmost window, click first to bring that to front
     TUCCursorActionPointAndClick, // like move, but clicks on release
     TUCCursorActionDrag,
     TUCCursorActionClick,
     TUCCursorActionSecondaryClick,
     TUCCursorActionScroll,
-    TUCCursorActionMagnify
+    TUCCursorActionMagnify,
+    TUCCursorActionMissionControl
 };
 
 

@@ -34,8 +34,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (CGPoint)currentCursorLocation;
 
-- (void)bringWindowToFrontAt:(CGPoint)aLocation;
-
 - (void)moveCursorTo:(CGPoint)aLocation;
 
 - (void)performClickAt:(CGPoint)aLocation;
@@ -49,6 +47,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)magnifyLocationA:(CGPoint)p1 locationB:(CGPoint)p2 relativeP1:(CGPoint)r1 relP2:(CGPoint)r2;
 - (void)stopMagnifying;
+
+- (void)performMissionControl;
 
 
 @end
