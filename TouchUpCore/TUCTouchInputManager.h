@@ -65,6 +65,12 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property CGFloat scrollInertiaVelocityMultiplier;
 
+/**
+ Enables/disables three-finger swipe recognition.
+ Default value is YES.
+ */
+@property BOOL threeFingerSwipeEnabled;
+
 @property (readonly) NSInteger debugProcessFrameID;
 @property (readonly) NSInteger debugActiveTouchCount;
 @property (readonly) BOOL debugThreeFingerTracking;

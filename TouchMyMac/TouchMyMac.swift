@@ -50,6 +50,7 @@ class TouchMyMac: NSObject, ObservableObject {
     
     @Published var isSecondaryClickEnabled = false
     @Published var isMagnificationEnabled = false
+    @Published var isThreeFingerSwipeEnabled = true
 
     @Published var isScrollInertiaEnabled = true
     @Published var scrollInertiaDecelerationPerFrame: CGFloat = 0.95
@@ -405,6 +406,7 @@ extension TouchMyMac {
             "ignoreOriginTouches" : true,
             "isSecondaryClickEnabled" : true,
             "isMagnificationEnabled" : true,
+            "isThreeFingerSwipeEnabled" : true,
             "isScrollInertiaEnabled" : true,
             "scrollInertiaDecelerationPerFrame" : 0.95,
             "scrollInertiaVelocityMultiplier" : 1.0
@@ -424,6 +426,7 @@ extension TouchMyMac {
             $doubleClickDistance.assign(to: \.doubleClickTolerance, on: touchManager),
             $errorResistance.assign(to: \.errorResistance, on: touchManager),
             $ignoreOriginTouches.assign(to: \.ignoreOriginTouches, on: touchManager),
+            $isThreeFingerSwipeEnabled.assign(to: \.threeFingerSwipeEnabled, on: touchManager),
             $isScrollInertiaEnabled.assign(to: \.scrollInertiaEnabled, on: touchManager),
             $scrollInertiaDecelerationPerFrame.assign(to: \.scrollInertiaDecelerationPerFrame, on: touchManager),
             $scrollInertiaVelocityMultiplier.assign(to: \.scrollInertiaVelocityMultiplier, on: touchManager)
@@ -433,6 +436,8 @@ extension TouchMyMac {
         
         isSecondaryClickEnabled = defaults.bool(forKey: "isSecondaryClickEnabled")
         isMagnificationEnabled = defaults.bool(forKey: "isMagnificationEnabled")
+        isThreeFingerSwipeEnabled = defaults.bool(forKey: "isThreeFingerSwipeEnabled")
+        touchManager.threeFingerSwipeEnabled = isThreeFingerSwipeEnabled
 
         isScrollInertiaEnabled = defaults.bool(forKey: "isScrollInertiaEnabled")
         scrollInertiaDecelerationPerFrame = CGFloat(defaults.double(forKey: "scrollInertiaDecelerationPerFrame"))
@@ -453,6 +458,7 @@ extension TouchMyMac {
         
         defaults.set(isSecondaryClickEnabled, forKey: "isSecondaryClickEnabled")
         defaults.set(isMagnificationEnabled, forKey: "isMagnificationEnabled")
+        defaults.set(isThreeFingerSwipeEnabled, forKey: "isThreeFingerSwipeEnabled")
 
         defaults.set(isScrollInertiaEnabled, forKey: "isScrollInertiaEnabled")
         defaults.set(Double(scrollInertiaDecelerationPerFrame), forKey: "scrollInertiaDecelerationPerFrame")
@@ -619,6 +625,10 @@ extension TouchMyMac {
         case \.isMagnificationEnabled:
             return("Magnification",
                    "Pinch two fingers to increase or decrease the size of the content. (EXPERIMENTAL)")
+
+        case \.isThreeFingerSwipeEnabled:
+            return("Three-Finger Swipe Up",
+                   "Swipe up with three fingers to open Mission Control.")
             
         case \.holdDuration:
             return("Hold Duration",

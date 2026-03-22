@@ -68,6 +68,10 @@ struct SettingsView: View {
             Toggle(isOn: $model.isMagnificationEnabled) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.isMagnificationEnabled))
             }
+
+            Toggle(isOn: $model.isThreeFingerSwipeEnabled) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.isThreeFingerSwipeEnabled))
+            }
         }
     }
     

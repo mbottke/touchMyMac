@@ -367,11 +367,11 @@ static const CGFloat kThreeFingerSwipeMaxHorizontalTravelMM = 18.0f;
         }
     }
 
-    if (self.threeFingerSwipeTracking && [touches count] != 3) {
+    if ((!self.threeFingerSwipeEnabled || self.threeFingerSwipeTracking) && [touches count] != 3) {
         [self resetThreeFingerSwipeTracking];
     }
 
-    if ([touches count] == 3 && [touches containsObject:cursorTouch]) {
+    if (self.threeFingerSwipeEnabled && [touches count] == 3 && [touches containsObject:cursorTouch]) {
         if (!self.threeFingerSwipeTracking) {
             self.threeFingerSwipeTracking = YES;
             self.threeFingerSwipeTriggered = NO;
