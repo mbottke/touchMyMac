@@ -32,6 +32,13 @@
 @property CGPoint threeFingerSwipeStartCentroid;
 @property BOOL threeFingerSwipeTriggered;
 @property BOOL threeFingerSwipeTracking;
+@property CGPoint fourFingerSwipeLeftStartCentroid;
+@property BOOL fourFingerSwipeLeftTriggered;
+@property BOOL fourFingerSwipeLeftTracking;
+@property CGPoint fiveFingerHoldStartCentroid;
+@property BOOL fiveFingerHoldActivated;
+@property BOOL fiveFingerHoldTracking;
+@property (strong) NSDate *fiveFingerHoldStartDate;
 @property NSInteger debugProcessFrameID;
 @property NSInteger debugActiveTouchCount;
 @property BOOL debugThreeFingerTracking;
@@ -60,6 +67,10 @@ static const CGFloat kScrollReanchorDistanceMM = 25.0f;
 static const NSTimeInterval kTouchInactivityTimeout = 0.12;
 static const CGFloat kThreeFingerSwipeTriggerTravelMM = 18.0f;
 static const CGFloat kThreeFingerSwipeMaxHorizontalTravelMM = 18.0f;
+static const CGFloat kFourFingerSwipeTriggerTravelMM = 20.0f;
+static const CGFloat kFourFingerSwipeMaxVerticalTravelMM = 18.0f;
+static const NSTimeInterval kFiveFingerHoldActivationDuration = 0.25;
+static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
 
 #pragma mark   Start & Stop
 
@@ -241,6 +252,56 @@ static const CGFloat kThreeFingerSwipeMaxHorizontalTravelMM = 18.0f;
     return upwardTouches;
 }
 
+- (NSInteger)leftwardTouchCountForTouches:(NSArray<TUCTouch *> *)touches
+                              hasRightward:(BOOL *)hasRightward {
+    NSInteger leftwardTouches = 0;
+    BOOL foundRightward = NO;
+
+    for (TUCTouch *touch in touches) {
+        CGPoint trajectory = [touch trajectory];
+        if (trajectory.x > 0) {
+            foundRightward = YES;
+        }
+        if (trajectory.x < 0 && fabs(trajectory.x) >= fabs(trajectory.y)) {
+            leftwardTouches += 1;
+        }
+    }
+
+    if (hasRightward != NULL) {
+        *hasRightward = foundRightward;
+    }
+
+    return leftwardTouches;
+}
+
+- (BOOL)isThreeFingerSwipeEnabledInCurrentConfig {
+    return self.threeFingerSwipeEnabled;
+}
+
+- (BOOL)isFourFingerSwipeLeftEnabledInCurrentConfig {
+    return [[self.fourFingerSwipeLeftSequenceSpec stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] length] > 0;
+}
+
+- (BOOL)isFiveFingerHoldEnabledInCurrentConfig {
+    return [[self.fiveFingerHoldShortcutSpec stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] length] > 0;
+}
+
+- (void)resetFourFingerSwipeLeftTracking {
+    self.fourFingerSwipeLeftTracking = NO;
+    self.fourFingerSwipeLeftTriggered = NO;
+    self.fourFingerSwipeLeftStartCentroid = CGPointZero;
+}
+
+- (void)resetFiveFingerHoldTracking {
+    if (self.fiveFingerHoldActivated) {
+        [[TUCCursorUtilities sharedInstance] endHeldShortcut];
+    }
+    self.fiveFingerHoldTracking = NO;
+    self.fiveFingerHoldActivated = NO;
+    self.fiveFingerHoldStartCentroid = CGPointZero;
+    self.fiveFingerHoldStartDate = nil;
+}
+
 
 - (void)stopCurrentGesture {
     [[TUCCursorUtilities sharedInstance] stopDraggingCursor];
@@ -251,6 +312,8 @@ static const CGFloat kThreeFingerSwipeMaxHorizontalTravelMM = 18.0f;
     self.identifiedMultitouchGesture = _TUCCursorGestureNone;
     self.gestureAdditionalTouch = nil;
     [self resetThreeFingerSwipeTracking];
+    [self resetFourFingerSwipeLeftTracking];
+    [self resetFiveFingerHoldTracking];
 }
 
 
@@ -365,6 +428,64 @@ static const CGFloat kThreeFingerSwipeMaxHorizontalTravelMM = 18.0f;
             self.gestureAdditionalTouch = nil;
             [self stopCurrentGesture];
         }
+    }
+
+    if ((![self isFiveFingerHoldEnabledInCurrentConfig] || self.fiveFingerHoldTracking) && [touches count] != 5) {
+        [self resetFiveFingerHoldTracking];
+    }
+
+    if ([self isFiveFingerHoldEnabledInCurrentConfig] && [touches count] == 5 && [touches containsObject:cursorTouch]) {
+        CGPoint centroid = [self centroidForTouches:touches];
+        CGSize physicalSize = [self touchscreen].physicalSize;
+
+        if (!self.fiveFingerHoldTracking) {
+            self.fiveFingerHoldTracking = YES;
+            self.fiveFingerHoldActivated = NO;
+            self.fiveFingerHoldStartCentroid = centroid;
+            self.fiveFingerHoldStartDate = [NSDate date];
+        }
+
+        CGFloat dxMM = (centroid.x - self.fiveFingerHoldStartCentroid.x) * physicalSize.width;
+        CGFloat dyMM = (centroid.y - self.fiveFingerHoldStartCentroid.y) * physicalSize.height;
+        CGFloat travelMM = (CGFloat)sqrt((double)(dxMM * dxMM + dyMM * dyMM));
+        NSTimeInterval holdTime = self.fiveFingerHoldStartDate == nil ? 0 : [[NSDate date] timeIntervalSinceDate:self.fiveFingerHoldStartDate];
+
+        if (!self.fiveFingerHoldActivated && travelMM > kFiveFingerHoldMaxTravelMM) {
+            self.fiveFingerHoldStartCentroid = centroid;
+            self.fiveFingerHoldStartDate = [NSDate date];
+        } else if (!self.fiveFingerHoldActivated && holdTime >= kFiveFingerHoldActivationDuration) {
+            [self performMouseEventForGesture:TUCCursorGestureFiveFingerHold];
+            self.fiveFingerHoldActivated = YES;
+        }
+
+        return;
+    }
+
+    if ((![self isFourFingerSwipeLeftEnabledInCurrentConfig] || self.fourFingerSwipeLeftTracking) && [touches count] != 4) {
+        [self resetFourFingerSwipeLeftTracking];
+    }
+
+    if ([self isFourFingerSwipeLeftEnabledInCurrentConfig] && [touches count] == 4 && [touches containsObject:cursorTouch]) {
+        if (!self.fourFingerSwipeLeftTracking) {
+            self.fourFingerSwipeLeftTracking = YES;
+            self.fourFingerSwipeLeftTriggered = NO;
+            self.fourFingerSwipeLeftStartCentroid = [self centroidForTouches:touches];
+        }
+
+        CGPoint centroid = [self centroidForTouches:touches];
+        CGSize physicalSize = [self touchscreen].physicalSize;
+        CGFloat horizontalTravelMM = (self.fourFingerSwipeLeftStartCentroid.x - centroid.x) * physicalSize.width;
+        CGFloat verticalTravelMM = fabs((centroid.y - self.fourFingerSwipeLeftStartCentroid.y) * physicalSize.height);
+        BOOL shouldTrigger = horizontalTravelMM >= kFourFingerSwipeTriggerTravelMM
+            && verticalTravelMM <= kFourFingerSwipeMaxVerticalTravelMM
+            && horizontalTravelMM >= verticalTravelMM;
+
+        if (!self.fourFingerSwipeLeftTriggered && shouldTrigger) {
+            [self performMouseEventForGesture:TUCCursorGestureFourFingerSwipeLeft];
+            self.fourFingerSwipeLeftTriggered = YES;
+        }
+
+        return;
     }
 
     if ((!self.threeFingerSwipeEnabled || self.threeFingerSwipeTracking) && [touches count] != 3) {
@@ -599,6 +720,9 @@ static const CGFloat kThreeFingerSwipeMaxHorizontalTravelMM = 18.0f;
         if (previousAction == TUCCursorActionScroll) {
             self.hasLastScrollLocation = NO;
         }
+        if (previousAction == TUCCursorActionKeyboardShortcutHold) {
+            [utils endHeldShortcut];
+        }
     }
     self.lastPerformedAction = action;
     
@@ -673,6 +797,14 @@ static const CGFloat kThreeFingerSwipeMaxHorizontalTravelMM = 18.0f;
         case TUCCursorActionMissionControl:
             [utils performMissionControl];
             break;
+
+        case TUCCursorActionKeyboardShortcutHold:
+            [utils beginHoldingShortcutSpec:self.fiveFingerHoldShortcutSpec ?: @""];
+            break;
+
+        case TUCCursorActionKeyboardShortcutSequence:
+            [utils performShortcutSequenceSpec:self.fourFingerSwipeLeftSequenceSpec ?: @""];
+            break;
     }
 }
 
@@ -693,6 +825,8 @@ static const CGFloat kThreeFingerSwipeMaxHorizontalTravelMM = 18.0f;
         case TUCCursorGestureTwoFingerDrag:     return TUCCursorActionDrag;
         case TUCCursorGesturePinch:             return TUCCursorActionMagnify;
         case TUCCursorGestureThreeFingerSwipeUp:return TUCCursorActionMissionControl;
+        case TUCCursorGestureFourFingerSwipeLeft:return TUCCursorActionKeyboardShortcutSequence;
+        case TUCCursorGestureFiveFingerHold:    return TUCCursorActionKeyboardShortcutHold;
         case _TUCCursorGestureNone:             return TUCCursorActionNone;
     }
 }
@@ -944,6 +1078,9 @@ static const CGFloat kThreeFingerSwipeMaxHorizontalTravelMM = 18.0f;
         self.scrollInertiaEnabled = YES;
         self.scrollInertiaDecelerationPerFrame = 0.95;
         self.scrollInertiaVelocityMultiplier = 1.0;
+        self.threeFingerSwipeEnabled = YES;
+        self.fiveFingerHoldShortcutSpec = @"fn";
+        self.fourFingerSwipeLeftSequenceSpec = @"cmd+a, delete";
     }
     return self;
 }

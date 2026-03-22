@@ -72,6 +72,27 @@ struct SettingsView: View {
             Toggle(isOn: $model.isThreeFingerSwipeEnabled) {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.isThreeFingerSwipeEnabled))
             }
+
+            shortcutMappingField(
+                labels: model.uiLabels(for: \.fiveFingerHoldShortcutSpec),
+                placeholder: "fn",
+                text: $model.fiveFingerHoldShortcutSpec
+            )
+
+            shortcutMappingField(
+                labels: model.uiLabels(for: \.fourFingerSwipeLeftSequenceSpec),
+                placeholder: "cmd+a, delete",
+                text: $model.fourFingerSwipeLeftSequenceSpec
+            )
+        }
+    }
+
+    func shortcutMappingField(labels: (title: String, description: String), placeholder: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SettingsExplanationLabel(labels: labels)
+            TextField(placeholder, text: text)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12, weight: .regular, design: .monospaced))
         }
     }
     

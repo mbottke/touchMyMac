@@ -7,6 +7,7 @@
 
 #import "TUCCursorUtilities.h"
 #import <Carbon/Carbon.h>
+#import <unistd.h>
 
 @interface TUCCursorUtilities ()
 
@@ -26,6 +27,11 @@
 @property BOOL isMagnifying;
 @property CGFloat lastPinchDistance;
 
+@property BOOL isHoldingShortcut;
+@property (copy) NSArray<NSDictionary<NSString *, NSNumber *> *> *heldModifierDescriptors;
+@property (copy) NSArray<NSNumber *> *heldNonModifierKeyCodes;
+@property CGEventFlags heldShortcutFlags;
+
 @end
 
 @implementation TUCCursorUtilities
@@ -37,6 +43,9 @@ static const CGFloat kDefaultMomentumDecelerationPerFrame = 0.95;     // 60Hz
 static const CGKeyCode kUpArrowKeyCode = 126;
 static const CGKeyCode kControlKeyCode = kVK_Control;
 static NSString * const kMissionControlAppPath = @"/System/Applications/Mission Control.app";
+static NSString * const TUCShortcutDescriptorCodeKey = @"code";
+static NSString * const TUCShortcutDescriptorFlagKey = @"flag";
+static const useconds_t kShortcutSequenceStepDelayMicroseconds = 30000;
 
 + (TUCCursorUtilities *)sharedInstance {
     static TUCCursorUtilities *sharedInstance;
@@ -71,6 +80,196 @@ static NSString * const kMissionControlAppPath = @"/System/Applications/Mission 
     CGPoint location = CGEventGetLocation(dummy);
     CFRelease(dummy);
     return location;
+}
+
+- (BOOL)resolveShortcutToken:(NSString *)token
+                     keyCode:(CGKeyCode *)keyCode
+                        flag:(CGEventFlags *)flag
+                  isModifier:(BOOL *)isModifier {
+    NSString *normalized = token.lowercaseString;
+    if (normalized.length == 0) {
+        return NO;
+    }
+
+    if ([normalized isEqualToString:@"cmd"] || [normalized isEqualToString:@"command"] || [normalized isEqualToString:@"⌘"]) {
+        *keyCode = kVK_Command;
+        *flag = kCGEventFlagMaskCommand;
+        *isModifier = YES;
+        return YES;
+    }
+    if ([normalized isEqualToString:@"ctrl"] || [normalized isEqualToString:@"control"] || [normalized isEqualToString:@"⌃"]) {
+        *keyCode = kVK_Control;
+        *flag = kCGEventFlagMaskControl;
+        *isModifier = YES;
+        return YES;
+    }
+    if ([normalized isEqualToString:@"opt"] || [normalized isEqualToString:@"option"] || [normalized isEqualToString:@"alt"] || [normalized isEqualToString:@"⌥"]) {
+        *keyCode = kVK_Option;
+        *flag = kCGEventFlagMaskAlternate;
+        *isModifier = YES;
+        return YES;
+    }
+    if ([normalized isEqualToString:@"shift"] || [normalized isEqualToString:@"⇧"]) {
+        *keyCode = kVK_Shift;
+        *flag = kCGEventFlagMaskShift;
+        *isModifier = YES;
+        return YES;
+    }
+    if ([normalized isEqualToString:@"fn"] || [normalized isEqualToString:@"function"] || [normalized isEqualToString:@"globe"]) {
+        *keyCode = kVK_Function;
+        *flag = kCGEventFlagMaskSecondaryFn;
+        *isModifier = YES;
+        return YES;
+    }
+
+    *flag = 0;
+    *isModifier = NO;
+
+    if ([normalized isEqualToString:@"a"]) { *keyCode = kVK_ANSI_A; return YES; }
+    if ([normalized isEqualToString:@"b"]) { *keyCode = kVK_ANSI_B; return YES; }
+    if ([normalized isEqualToString:@"c"]) { *keyCode = kVK_ANSI_C; return YES; }
+    if ([normalized isEqualToString:@"d"]) { *keyCode = kVK_ANSI_D; return YES; }
+    if ([normalized isEqualToString:@"e"]) { *keyCode = kVK_ANSI_E; return YES; }
+    if ([normalized isEqualToString:@"f"]) { *keyCode = kVK_ANSI_F; return YES; }
+    if ([normalized isEqualToString:@"g"]) { *keyCode = kVK_ANSI_G; return YES; }
+    if ([normalized isEqualToString:@"h"]) { *keyCode = kVK_ANSI_H; return YES; }
+    if ([normalized isEqualToString:@"i"]) { *keyCode = kVK_ANSI_I; return YES; }
+    if ([normalized isEqualToString:@"j"]) { *keyCode = kVK_ANSI_J; return YES; }
+    if ([normalized isEqualToString:@"k"]) { *keyCode = kVK_ANSI_K; return YES; }
+    if ([normalized isEqualToString:@"l"]) { *keyCode = kVK_ANSI_L; return YES; }
+    if ([normalized isEqualToString:@"m"]) { *keyCode = kVK_ANSI_M; return YES; }
+    if ([normalized isEqualToString:@"n"]) { *keyCode = kVK_ANSI_N; return YES; }
+    if ([normalized isEqualToString:@"o"]) { *keyCode = kVK_ANSI_O; return YES; }
+    if ([normalized isEqualToString:@"p"]) { *keyCode = kVK_ANSI_P; return YES; }
+    if ([normalized isEqualToString:@"q"]) { *keyCode = kVK_ANSI_Q; return YES; }
+    if ([normalized isEqualToString:@"r"]) { *keyCode = kVK_ANSI_R; return YES; }
+    if ([normalized isEqualToString:@"s"]) { *keyCode = kVK_ANSI_S; return YES; }
+    if ([normalized isEqualToString:@"t"]) { *keyCode = kVK_ANSI_T; return YES; }
+    if ([normalized isEqualToString:@"u"]) { *keyCode = kVK_ANSI_U; return YES; }
+    if ([normalized isEqualToString:@"v"]) { *keyCode = kVK_ANSI_V; return YES; }
+    if ([normalized isEqualToString:@"w"]) { *keyCode = kVK_ANSI_W; return YES; }
+    if ([normalized isEqualToString:@"x"]) { *keyCode = kVK_ANSI_X; return YES; }
+    if ([normalized isEqualToString:@"y"]) { *keyCode = kVK_ANSI_Y; return YES; }
+    if ([normalized isEqualToString:@"z"]) { *keyCode = kVK_ANSI_Z; return YES; }
+    if ([normalized isEqualToString:@"0"]) { *keyCode = kVK_ANSI_0; return YES; }
+    if ([normalized isEqualToString:@"1"]) { *keyCode = kVK_ANSI_1; return YES; }
+    if ([normalized isEqualToString:@"2"]) { *keyCode = kVK_ANSI_2; return YES; }
+    if ([normalized isEqualToString:@"3"]) { *keyCode = kVK_ANSI_3; return YES; }
+    if ([normalized isEqualToString:@"4"]) { *keyCode = kVK_ANSI_4; return YES; }
+    if ([normalized isEqualToString:@"5"]) { *keyCode = kVK_ANSI_5; return YES; }
+    if ([normalized isEqualToString:@"6"]) { *keyCode = kVK_ANSI_6; return YES; }
+    if ([normalized isEqualToString:@"7"]) { *keyCode = kVK_ANSI_7; return YES; }
+    if ([normalized isEqualToString:@"8"]) { *keyCode = kVK_ANSI_8; return YES; }
+    if ([normalized isEqualToString:@"9"]) { *keyCode = kVK_ANSI_9; return YES; }
+    if ([normalized isEqualToString:@"delete"] || [normalized isEqualToString:@"backspace"]) { *keyCode = kVK_Delete; return YES; }
+    if ([normalized isEqualToString:@"forwarddelete"]) { *keyCode = kVK_ForwardDelete; return YES; }
+    if ([normalized isEqualToString:@"return"]) { *keyCode = kVK_Return; return YES; }
+    if ([normalized isEqualToString:@"enter"]) { *keyCode = kVK_ANSI_KeypadEnter; return YES; }
+    if ([normalized isEqualToString:@"space"]) { *keyCode = kVK_Space; return YES; }
+    if ([normalized isEqualToString:@"tab"]) { *keyCode = kVK_Tab; return YES; }
+    if ([normalized isEqualToString:@"escape"] || [normalized isEqualToString:@"esc"]) { *keyCode = kVK_Escape; return YES; }
+    if ([normalized isEqualToString:@"left"]) { *keyCode = kVK_LeftArrow; return YES; }
+    if ([normalized isEqualToString:@"right"]) { *keyCode = kVK_RightArrow; return YES; }
+    if ([normalized isEqualToString:@"up"]) { *keyCode = kVK_UpArrow; return YES; }
+    if ([normalized isEqualToString:@"down"]) { *keyCode = kVK_DownArrow; return YES; }
+    if ([normalized isEqualToString:@"home"]) { *keyCode = kVK_Home; return YES; }
+    if ([normalized isEqualToString:@"end"]) { *keyCode = kVK_End; return YES; }
+    if ([normalized isEqualToString:@"pageup"]) { *keyCode = kVK_PageUp; return YES; }
+    if ([normalized isEqualToString:@"pagedown"]) { *keyCode = kVK_PageDown; return YES; }
+    if ([normalized isEqualToString:@"f1"]) { *keyCode = kVK_F1; return YES; }
+    if ([normalized isEqualToString:@"f2"]) { *keyCode = kVK_F2; return YES; }
+    if ([normalized isEqualToString:@"f3"]) { *keyCode = kVK_F3; return YES; }
+    if ([normalized isEqualToString:@"f4"]) { *keyCode = kVK_F4; return YES; }
+    if ([normalized isEqualToString:@"f5"]) { *keyCode = kVK_F5; return YES; }
+    if ([normalized isEqualToString:@"f6"]) { *keyCode = kVK_F6; return YES; }
+    if ([normalized isEqualToString:@"f7"]) { *keyCode = kVK_F7; return YES; }
+    if ([normalized isEqualToString:@"f8"]) { *keyCode = kVK_F8; return YES; }
+    if ([normalized isEqualToString:@"f9"]) { *keyCode = kVK_F9; return YES; }
+    if ([normalized isEqualToString:@"f10"]) { *keyCode = kVK_F10; return YES; }
+    if ([normalized isEqualToString:@"f11"]) { *keyCode = kVK_F11; return YES; }
+    if ([normalized isEqualToString:@"f12"]) { *keyCode = kVK_F12; return YES; }
+
+    return NO;
+}
+
+- (nullable NSDictionary<NSString *, id> *)parseShortcutChordSpec:(NSString *)shortcutSpec {
+    NSString *trimmed = [shortcutSpec stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (trimmed.length == 0) {
+        return nil;
+    }
+
+    NSArray<NSString *> *parts = [trimmed componentsSeparatedByString:@"+"];
+    NSMutableArray<NSDictionary<NSString *, NSNumber *> *> *modifierDescriptors = [NSMutableArray array];
+    NSMutableArray<NSNumber *> *nonModifierKeyCodes = [NSMutableArray array];
+    CGEventFlags flags = 0;
+
+    for (NSString *part in parts) {
+        NSString *token = [part stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        CGKeyCode keyCode = 0;
+        CGEventFlags tokenFlag = 0;
+        BOOL isModifier = NO;
+        if (![self resolveShortcutToken:token keyCode:&keyCode flag:&tokenFlag isModifier:&isModifier]) {
+            return nil;
+        }
+
+        if (isModifier) {
+            [modifierDescriptors addObject:@{
+                TUCShortcutDescriptorCodeKey: @(keyCode),
+                TUCShortcutDescriptorFlagKey: @(tokenFlag)
+            }];
+            flags |= tokenFlag;
+        } else {
+            [nonModifierKeyCodes addObject:@(keyCode)];
+        }
+    }
+
+    return @{
+        @"modifiers": modifierDescriptors,
+        @"nonModifiers": nonModifierKeyCodes,
+        @"flags": @(flags)
+    };
+}
+
+- (void)postKeyboardEventForKeyCode:(CGKeyCode)keyCode
+                             keyDown:(BOOL)keyDown
+                               flags:(CGEventFlags)flags {
+    CGEventRef event = CGEventCreateKeyboardEvent(NULL, keyCode, keyDown);
+    if (event == NULL) {
+        return;
+    }
+    CGEventSetFlags(event, flags);
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+}
+
+- (void)pressAndReleaseShortcutChordWithDescriptors:(NSDictionary<NSString *, id> *)descriptors {
+    NSArray<NSDictionary<NSString *, NSNumber *> *> *modifierDescriptors = descriptors[@"modifiers"];
+    NSArray<NSNumber *> *nonModifierKeyCodes = descriptors[@"nonModifiers"];
+    CGEventFlags flags = [descriptors[@"flags"] unsignedLongLongValue];
+
+    CGEventFlags currentFlags = 0;
+    for (NSDictionary<NSString *, NSNumber *> *descriptor in modifierDescriptors) {
+        currentFlags |= descriptor[TUCShortcutDescriptorFlagKey].unsignedLongLongValue;
+        [self postKeyboardEventForKeyCode:descriptor[TUCShortcutDescriptorCodeKey].unsignedShortValue
+                                  keyDown:YES
+                                    flags:currentFlags];
+    }
+
+    for (NSNumber *keyCode in nonModifierKeyCodes) {
+        [self postKeyboardEventForKeyCode:keyCode.unsignedShortValue keyDown:YES flags:flags];
+    }
+
+    for (NSNumber *keyCode in [nonModifierKeyCodes reverseObjectEnumerator]) {
+        [self postKeyboardEventForKeyCode:keyCode.unsignedShortValue keyDown:NO flags:flags];
+    }
+
+    for (NSDictionary<NSString *, NSNumber *> *descriptor in [modifierDescriptors reverseObjectEnumerator]) {
+        CGEventFlags nextFlags = currentFlags & ~descriptor[TUCShortcutDescriptorFlagKey].unsignedLongLongValue;
+        [self postKeyboardEventForKeyCode:descriptor[TUCShortcutDescriptorCodeKey].unsignedShortValue
+                                  keyDown:NO
+                                    flags:nextFlags];
+        currentFlags = nextFlags;
+    }
 }
 
 
@@ -376,6 +575,82 @@ static inline CFTimeInterval TUCNowSeconds(void) {
     if (self.isMagnifying) {
         self.isMagnifying = NO;
         [self magnify:0 phase:NSTouchPhaseEnded];
+    }
+}
+
+- (void)beginHoldingShortcutSpec:(NSString *)shortcutSpec {
+    NSDictionary<NSString *, id> *descriptors = [self parseShortcutChordSpec:shortcutSpec];
+    if (descriptors == nil) {
+        return;
+    }
+
+    if (self.isHoldingShortcut) {
+        [self endHeldShortcut];
+    }
+
+    NSArray<NSDictionary<NSString *, NSNumber *> *> *modifierDescriptors = descriptors[@"modifiers"];
+    NSArray<NSNumber *> *nonModifierKeyCodes = descriptors[@"nonModifiers"];
+    CGEventFlags flags = [descriptors[@"flags"] unsignedLongLongValue];
+
+    CGEventFlags currentFlags = 0;
+    for (NSDictionary<NSString *, NSNumber *> *descriptor in modifierDescriptors) {
+        currentFlags |= descriptor[TUCShortcutDescriptorFlagKey].unsignedLongLongValue;
+        [self postKeyboardEventForKeyCode:descriptor[TUCShortcutDescriptorCodeKey].unsignedShortValue
+                                  keyDown:YES
+                                    flags:currentFlags];
+    }
+
+    for (NSNumber *keyCode in nonModifierKeyCodes) {
+        [self postKeyboardEventForKeyCode:keyCode.unsignedShortValue keyDown:YES flags:flags];
+    }
+
+    self.isHoldingShortcut = YES;
+    self.heldModifierDescriptors = modifierDescriptors;
+    self.heldNonModifierKeyCodes = nonModifierKeyCodes;
+    self.heldShortcutFlags = flags;
+}
+
+- (void)endHeldShortcut {
+    if (!self.isHoldingShortcut) {
+        return;
+    }
+
+    for (NSNumber *keyCode in [self.heldNonModifierKeyCodes reverseObjectEnumerator]) {
+        [self postKeyboardEventForKeyCode:keyCode.unsignedShortValue
+                                  keyDown:NO
+                                    flags:self.heldShortcutFlags];
+    }
+
+    CGEventFlags currentFlags = self.heldShortcutFlags;
+    for (NSDictionary<NSString *, NSNumber *> *descriptor in [self.heldModifierDescriptors reverseObjectEnumerator]) {
+        CGEventFlags nextFlags = currentFlags & ~descriptor[TUCShortcutDescriptorFlagKey].unsignedLongLongValue;
+        [self postKeyboardEventForKeyCode:descriptor[TUCShortcutDescriptorCodeKey].unsignedShortValue
+                                  keyDown:NO
+                                    flags:nextFlags];
+        currentFlags = nextFlags;
+    }
+
+    self.isHoldingShortcut = NO;
+    self.heldModifierDescriptors = @[];
+    self.heldNonModifierKeyCodes = @[];
+    self.heldShortcutFlags = 0;
+}
+
+- (void)performShortcutSequenceSpec:(NSString *)shortcutSequenceSpec {
+    NSString *normalized = [[shortcutSequenceSpec stringByReplacingOccurrencesOfString:@";" withString:@","]
+        stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (normalized.length == 0) {
+        return;
+    }
+
+    NSArray<NSString *> *steps = [normalized componentsSeparatedByString:@","];
+    for (NSString *step in steps) {
+        NSDictionary<NSString *, id> *descriptors = [self parseShortcutChordSpec:step];
+        if (descriptors == nil) {
+            return;
+        }
+        [self pressAndReleaseShortcutChordWithDescriptors:descriptors];
+        usleep(kShortcutSequenceStepDelayMicroseconds);
     }
 }
 

@@ -48,6 +48,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)magnifyLocationA:(CGPoint)p1 locationB:(CGPoint)p2 relativeP1:(CGPoint)r1 relP2:(CGPoint)r2;
 - (void)stopMagnifying;
 
+- (void)beginHoldingShortcutSpec:(NSString *)shortcutSpec;
+- (void)endHeldShortcut;
+- (void)performShortcutSequenceSpec:(NSString *)shortcutSequenceSpec;
 - (void)performMissionControl;
 
 

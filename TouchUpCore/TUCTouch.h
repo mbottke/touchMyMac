@@ -20,7 +20,9 @@ typedef NS_OPTIONS(NSUInteger, TUCCursorGesture) {
     TUCCursorGestureTapSecondFinger = 1 << 6,
     TUCCursorGestureTwoFingerDrag   = 1 << 7,
     TUCCursorGesturePinch           = 1 << 8, // internal: pinch cannot be remapped
-    TUCCursorGestureThreeFingerSwipeUp = 1 << 9
+    TUCCursorGestureThreeFingerSwipeUp = 1 << 9,
+    TUCCursorGestureFourFingerSwipeLeft = 1 << 10,
+    TUCCursorGestureFiveFingerHold = 1 << 11
 };
 
 
@@ -33,7 +35,9 @@ typedef NS_ENUM(NSUInteger, TUCCursorAction) {
     TUCCursorActionSecondaryClick,
     TUCCursorActionScroll,
     TUCCursorActionMagnify,
-    TUCCursorActionMissionControl
+    TUCCursorActionMissionControl,
+    TUCCursorActionKeyboardShortcutHold,
+    TUCCursorActionKeyboardShortcutSequence
 };
 
 

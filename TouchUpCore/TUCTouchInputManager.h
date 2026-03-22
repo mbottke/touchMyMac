@@ -71,6 +71,18 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property BOOL threeFingerSwipeEnabled;
 
+/**
+ Shortcut chord held while a five-finger long press is active. Empty string disables the gesture.
+ Example: "fn" or "cmd+shift".
+ */
+@property (copy) NSString *fiveFingerHoldShortcutSpec;
+
+/**
+ Shortcut sequence fired by a four-finger swipe left. Empty string disables the gesture.
+ Example: "ctrl+a, delete".
+ */
+@property (copy) NSString *fourFingerSwipeLeftSequenceSpec;
+
 @property (readonly) NSInteger debugProcessFrameID;
 @property (readonly) NSInteger debugActiveTouchCount;
 @property (readonly) BOOL debugThreeFingerTracking;

@@ -51,6 +51,8 @@ class TouchMyMac: NSObject, ObservableObject {
     @Published var isSecondaryClickEnabled = false
     @Published var isMagnificationEnabled = false
     @Published var isThreeFingerSwipeEnabled = true
+    @Published var fiveFingerHoldShortcutSpec: String = "fn"
+    @Published var fourFingerSwipeLeftSequenceSpec: String = "cmd+a, delete"
 
     @Published var isScrollInertiaEnabled = true
     @Published var scrollInertiaDecelerationPerFrame: CGFloat = 0.95
@@ -312,6 +314,8 @@ class TouchMyMac: NSObject, ObservableObject {
         case .TUCCursorGestureTwoFingerDrag: return "Two-Finger Drag"
         case .TUCCursorGesturePinch: return "Pinch"
         case .TUCCursorGestureThreeFingerSwipeUp: return "Three-Finger Swipe Up"
+        case .TUCCursorGestureFourFingerSwipeLeft: return "Four-Finger Swipe Left"
+        case .TUCCursorGestureFiveFingerHold: return "Five-Finger Hold"
         default: return "Unknown (\(gesture.rawValue))"
         }
     }
@@ -327,6 +331,8 @@ class TouchMyMac: NSObject, ObservableObject {
         case .scroll: return "Scroll"
         case .magnify: return "Magnify"
         case .missionControl: return "Mission Control"
+        case .keyboardShortcutHold: return "Hold Shortcut"
+        case .keyboardShortcutSequence: return "Shortcut Sequence"
         @unknown default: return "Unknown"
         }
     }
@@ -407,6 +413,8 @@ extension TouchMyMac {
             "isSecondaryClickEnabled" : true,
             "isMagnificationEnabled" : true,
             "isThreeFingerSwipeEnabled" : true,
+            "fiveFingerHoldShortcutSpec" : "fn",
+            "fourFingerSwipeLeftSequenceSpec" : "cmd+a, delete",
             "isScrollInertiaEnabled" : true,
             "scrollInertiaDecelerationPerFrame" : 0.95,
             "scrollInertiaVelocityMultiplier" : 1.0
@@ -427,6 +435,8 @@ extension TouchMyMac {
             $errorResistance.assign(to: \.errorResistance, on: touchManager),
             $ignoreOriginTouches.assign(to: \.ignoreOriginTouches, on: touchManager),
             $isThreeFingerSwipeEnabled.assign(to: \.threeFingerSwipeEnabled, on: touchManager),
+            $fiveFingerHoldShortcutSpec.assign(to: \.fiveFingerHoldShortcutSpec, on: touchManager),
+            $fourFingerSwipeLeftSequenceSpec.assign(to: \.fourFingerSwipeLeftSequenceSpec, on: touchManager),
             $isScrollInertiaEnabled.assign(to: \.scrollInertiaEnabled, on: touchManager),
             $scrollInertiaDecelerationPerFrame.assign(to: \.scrollInertiaDecelerationPerFrame, on: touchManager),
             $scrollInertiaVelocityMultiplier.assign(to: \.scrollInertiaVelocityMultiplier, on: touchManager)
@@ -437,7 +447,16 @@ extension TouchMyMac {
         isSecondaryClickEnabled = defaults.bool(forKey: "isSecondaryClickEnabled")
         isMagnificationEnabled = defaults.bool(forKey: "isMagnificationEnabled")
         isThreeFingerSwipeEnabled = defaults.bool(forKey: "isThreeFingerSwipeEnabled")
+        fiveFingerHoldShortcutSpec = defaults.string(forKey: "fiveFingerHoldShortcutSpec") ?? "fn"
+        let savedFourFingerSequence = defaults.string(forKey: "fourFingerSwipeLeftSequenceSpec")
+        if let savedFourFingerSequence, !savedFourFingerSequence.isEmpty {
+            fourFingerSwipeLeftSequenceSpec = (savedFourFingerSequence == "ctrl+a, delete") ? "cmd+a, delete" : savedFourFingerSequence
+        } else {
+            fourFingerSwipeLeftSequenceSpec = "cmd+a, delete"
+        }
         touchManager.threeFingerSwipeEnabled = isThreeFingerSwipeEnabled
+        touchManager.fiveFingerHoldShortcutSpec = fiveFingerHoldShortcutSpec
+        touchManager.fourFingerSwipeLeftSequenceSpec = fourFingerSwipeLeftSequenceSpec
 
         isScrollInertiaEnabled = defaults.bool(forKey: "isScrollInertiaEnabled")
         scrollInertiaDecelerationPerFrame = CGFloat(defaults.double(forKey: "scrollInertiaDecelerationPerFrame"))
@@ -459,6 +478,8 @@ extension TouchMyMac {
         defaults.set(isSecondaryClickEnabled, forKey: "isSecondaryClickEnabled")
         defaults.set(isMagnificationEnabled, forKey: "isMagnificationEnabled")
         defaults.set(isThreeFingerSwipeEnabled, forKey: "isThreeFingerSwipeEnabled")
+        defaults.set(fiveFingerHoldShortcutSpec, forKey: "fiveFingerHoldShortcutSpec")
+        defaults.set(fourFingerSwipeLeftSequenceSpec, forKey: "fourFingerSwipeLeftSequenceSpec")
 
         defaults.set(isScrollInertiaEnabled, forKey: "isScrollInertiaEnabled")
         defaults.set(Double(scrollInertiaDecelerationPerFrame), forKey: "scrollInertiaDecelerationPerFrame")
@@ -559,6 +580,12 @@ extension TouchMyMac: TUCTouchDelegate {
 
         case .TUCCursorGestureThreeFingerSwipeUp:
             action = .missionControl
+
+        case .TUCCursorGestureFourFingerSwipeLeft:
+            action = .keyboardShortcutSequence
+
+        case .TUCCursorGestureFiveFingerHold:
+            action = .keyboardShortcutHold
             
         default:
             action = .none
@@ -629,6 +656,14 @@ extension TouchMyMac {
         case \.isThreeFingerSwipeEnabled:
             return("Three-Finger Swipe Up",
                    "Swipe up with three fingers to open Mission Control.")
+
+        case \.fiveFingerHoldShortcutSpec:
+            return("Five-Finger Hold Shortcut",
+                   "Hold five fingers still to keep a shortcut chord pressed. Example: fn or cmd+shift.")
+
+        case \.fourFingerSwipeLeftSequenceSpec:
+            return("Four-Finger Left Swipe Sequence",
+                   "Swipe left with four fingers to fire a shortcut sequence. Example: cmd+a, delete.")
             
         case \.holdDuration:
             return("Hold Duration",
