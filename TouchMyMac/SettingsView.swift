@@ -73,6 +73,10 @@ struct SettingsView: View {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.isThreeFingerSwipeEnabled))
             }
 
+            Toggle(isOn: $model.isFourFingerSwipeUpKeyboardEnabled) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.isFourFingerSwipeUpKeyboardEnabled))
+            }
+
             shortcutMappingField(
                 labels: model.uiLabels(for: \.fiveFingerHoldShortcutSpec),
                 placeholder: "fn",

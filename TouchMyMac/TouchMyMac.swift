@@ -51,6 +51,7 @@ class TouchMyMac: NSObject, ObservableObject {
     @Published var isSecondaryClickEnabled = false
     @Published var isMagnificationEnabled = false
     @Published var isThreeFingerSwipeEnabled = true
+    @Published var isFourFingerSwipeUpKeyboardEnabled = true
     @Published var fiveFingerHoldShortcutSpec: String = "fn"
     @Published var fourFingerSwipeLeftSequenceSpec: String = "cmd+a, delete"
 
@@ -217,6 +218,60 @@ class TouchMyMac: NSObject, ObservableObject {
         }
         addDiagnosticsEvent("Requested Accessibility access prompt")
     }
+
+    func sendVirtualKeyboardKey(token: String, shifted: Bool = false) {
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let shortcutSpec: String
+        if let mappedShortcut = virtualKeyboardShortcutSpec(for: trimmed, shifted: shifted) {
+            shortcutSpec = mappedShortcut
+        } else if shifted && trimmed.range(of: #"^[a-z]$"#, options: .regularExpression) != nil {
+            shortcutSpec = "shift+\(trimmed)"
+        } else {
+            shortcutSpec = trimmed
+        }
+
+        touchManager.performShortcutChordSpec(shortcutSpec)
+        addDiagnosticsEvent("Virtual key: \(shortcutSpec)")
+    }
+
+    private func virtualKeyboardShortcutSpec(for token: String, shifted: Bool) -> String? {
+        if shifted && token.range(of: #"^[a-z]$"#, options: .regularExpression) != nil {
+            return "shift+\(token)"
+        }
+
+        let symbolShortcutMap: [String: String] = [
+            "-": "hyphen",
+            "/": "slash",
+            ":": "shift+semicolon",
+            ";": "semicolon",
+            "(": "shift+9",
+            ")": "shift+0",
+            "$": "shift+4",
+            "&": "shift+7",
+            "@": "shift+2",
+            "\"": "shift+quote",
+            ".": "period",
+            ",": "comma",
+            "?": "shift+slash",
+            "!": "shift+1",
+            "'": "quote",
+            "#": "shift+3",
+            "%": "shift+5",
+            "^": "shift+6",
+            "*": "shift+8",
+            "+": "shift+equal",
+            "=": "equal",
+            "_": "shift+hyphen",
+            "\\": "backslash",
+            "|": "shift+backslash",
+            "~": "shift+grave",
+            "<": "shift+comma"
+        ]
+
+        return symbolShortcutMap[token]
+    }
     
     
     override init() {
@@ -316,6 +371,8 @@ class TouchMyMac: NSObject, ObservableObject {
         case .TUCCursorGestureThreeFingerSwipeUp: return "Three-Finger Swipe Up"
         case .TUCCursorGestureFourFingerSwipeLeft: return "Four-Finger Swipe Left"
         case .TUCCursorGestureFiveFingerHold: return "Five-Finger Hold"
+        case .TUCCursorGestureFourFingerSwipeUp: return "Four-Finger Swipe Up"
+        case .TUCCursorGestureFourFingerSwipeDown: return "Four-Finger Swipe Down"
         default: return "Unknown (\(gesture.rawValue))"
         }
     }
@@ -333,6 +390,8 @@ class TouchMyMac: NSObject, ObservableObject {
         case .missionControl: return "Mission Control"
         case .keyboardShortcutHold: return "Hold Shortcut"
         case .keyboardShortcutSequence: return "Shortcut Sequence"
+        case .floatingKeyboard: return "Floating Keyboard"
+        case .hideFloatingKeyboard: return "Hide Floating Keyboard"
         @unknown default: return "Unknown"
         }
     }
@@ -413,6 +472,7 @@ extension TouchMyMac {
             "isSecondaryClickEnabled" : true,
             "isMagnificationEnabled" : true,
             "isThreeFingerSwipeEnabled" : true,
+            "isFourFingerSwipeUpKeyboardEnabled" : true,
             "fiveFingerHoldShortcutSpec" : "fn",
             "fourFingerSwipeLeftSequenceSpec" : "cmd+a, delete",
             "isScrollInertiaEnabled" : true,
@@ -435,6 +495,7 @@ extension TouchMyMac {
             $errorResistance.assign(to: \.errorResistance, on: touchManager),
             $ignoreOriginTouches.assign(to: \.ignoreOriginTouches, on: touchManager),
             $isThreeFingerSwipeEnabled.assign(to: \.threeFingerSwipeEnabled, on: touchManager),
+            $isFourFingerSwipeUpKeyboardEnabled.assign(to: \.fourFingerSwipeUpKeyboardEnabled, on: touchManager),
             $fiveFingerHoldShortcutSpec.assign(to: \.fiveFingerHoldShortcutSpec, on: touchManager),
             $fourFingerSwipeLeftSequenceSpec.assign(to: \.fourFingerSwipeLeftSequenceSpec, on: touchManager),
             $isScrollInertiaEnabled.assign(to: \.scrollInertiaEnabled, on: touchManager),
@@ -447,6 +508,7 @@ extension TouchMyMac {
         isSecondaryClickEnabled = defaults.bool(forKey: "isSecondaryClickEnabled")
         isMagnificationEnabled = defaults.bool(forKey: "isMagnificationEnabled")
         isThreeFingerSwipeEnabled = defaults.bool(forKey: "isThreeFingerSwipeEnabled")
+        isFourFingerSwipeUpKeyboardEnabled = defaults.object(forKey: "isFourFingerSwipeUpKeyboardEnabled") as? Bool ?? true
         fiveFingerHoldShortcutSpec = defaults.string(forKey: "fiveFingerHoldShortcutSpec") ?? "fn"
         let savedFourFingerSequence = defaults.string(forKey: "fourFingerSwipeLeftSequenceSpec")
         if let savedFourFingerSequence, !savedFourFingerSequence.isEmpty {
@@ -455,6 +517,7 @@ extension TouchMyMac {
             fourFingerSwipeLeftSequenceSpec = "cmd+a, delete"
         }
         touchManager.threeFingerSwipeEnabled = isThreeFingerSwipeEnabled
+        touchManager.fourFingerSwipeUpKeyboardEnabled = isFourFingerSwipeUpKeyboardEnabled
         touchManager.fiveFingerHoldShortcutSpec = fiveFingerHoldShortcutSpec
         touchManager.fourFingerSwipeLeftSequenceSpec = fourFingerSwipeLeftSequenceSpec
 
@@ -478,6 +541,7 @@ extension TouchMyMac {
         defaults.set(isSecondaryClickEnabled, forKey: "isSecondaryClickEnabled")
         defaults.set(isMagnificationEnabled, forKey: "isMagnificationEnabled")
         defaults.set(isThreeFingerSwipeEnabled, forKey: "isThreeFingerSwipeEnabled")
+        defaults.set(isFourFingerSwipeUpKeyboardEnabled, forKey: "isFourFingerSwipeUpKeyboardEnabled")
         defaults.set(fiveFingerHoldShortcutSpec, forKey: "fiveFingerHoldShortcutSpec")
         defaults.set(fourFingerSwipeLeftSequenceSpec, forKey: "fourFingerSwipeLeftSequenceSpec")
 
@@ -586,6 +650,12 @@ extension TouchMyMac: TUCTouchDelegate {
 
         case .TUCCursorGestureFiveFingerHold:
             action = .keyboardShortcutHold
+
+        case .TUCCursorGestureFourFingerSwipeUp:
+            action = isFourFingerSwipeUpKeyboardEnabled ? .floatingKeyboard : .none
+
+        case .TUCCursorGestureFourFingerSwipeDown:
+            action = isFourFingerSwipeUpKeyboardEnabled ? .hideFloatingKeyboard : .none
             
         default:
             action = .none
@@ -631,6 +701,19 @@ extension TouchMyMac: TUCTouchDelegate {
             self.connectionState = .disconnected
         }
     }
+
+    func performCustomAction(_ action: TUCCursorAction) {
+        performUIUpdate {
+            switch action {
+            case .floatingKeyboard:
+                (NSApp.delegate as? AppDelegate)?.showFloatingKeyboard()
+            case .hideFloatingKeyboard:
+                (NSApp.delegate as? AppDelegate)?.hideFloatingKeyboard()
+            default:
+                break
+            }
+        }
+    }
 }
 
 
@@ -656,6 +739,10 @@ extension TouchMyMac {
         case \.isThreeFingerSwipeEnabled:
             return("Three-Finger Swipe Up",
                    "Swipe up with three fingers to open Mission Control.")
+
+        case \.isFourFingerSwipeUpKeyboardEnabled:
+            return("Four-Finger Swipe Up Keyboard",
+                   "Swipe up with four fingers to show the floating keyboard, and swipe down with four fingers to hide it.")
 
         case \.fiveFingerHoldShortcutSpec:
             return("Five-Finger Hold Shortcut",

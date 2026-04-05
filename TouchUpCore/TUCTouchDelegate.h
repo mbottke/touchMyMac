@@ -43,6 +43,11 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (TUCCursorAction)actionForGesture:(TUCCursorGesture)gesture;
 
+/**
+ Used for app-level actions that should not be performed inside TouchUpCore itself.
+ */
+- (void)performCustomAction:(TUCCursorAction)action;
+
 @end
 
 NS_ASSUME_NONNULL_END

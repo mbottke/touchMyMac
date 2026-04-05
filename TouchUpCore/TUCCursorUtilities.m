@@ -167,6 +167,17 @@ static const useconds_t kShortcutSequenceStepDelayMicroseconds = 30000;
     if ([normalized isEqualToString:@"enter"]) { *keyCode = kVK_ANSI_KeypadEnter; return YES; }
     if ([normalized isEqualToString:@"space"]) { *keyCode = kVK_Space; return YES; }
     if ([normalized isEqualToString:@"tab"]) { *keyCode = kVK_Tab; return YES; }
+    if ([normalized isEqualToString:@"grave"] || [normalized isEqualToString:@"backtick"]) { *keyCode = kVK_ANSI_Grave; return YES; }
+    if ([normalized isEqualToString:@"hyphen"] || [normalized isEqualToString:@"minus"]) { *keyCode = kVK_ANSI_Minus; return YES; }
+    if ([normalized isEqualToString:@"equal"] || [normalized isEqualToString:@"equals"]) { *keyCode = kVK_ANSI_Equal; return YES; }
+    if ([normalized isEqualToString:@"leftbracket"] || [normalized isEqualToString:@"["]) { *keyCode = kVK_ANSI_LeftBracket; return YES; }
+    if ([normalized isEqualToString:@"rightbracket"] || [normalized isEqualToString:@"]"]) { *keyCode = kVK_ANSI_RightBracket; return YES; }
+    if ([normalized isEqualToString:@"backslash"]) { *keyCode = kVK_ANSI_Backslash; return YES; }
+    if ([normalized isEqualToString:@"semicolon"]) { *keyCode = kVK_ANSI_Semicolon; return YES; }
+    if ([normalized isEqualToString:@"quote"] || [normalized isEqualToString:@"apostrophe"]) { *keyCode = kVK_ANSI_Quote; return YES; }
+    if ([normalized isEqualToString:@"comma"]) { *keyCode = kVK_ANSI_Comma; return YES; }
+    if ([normalized isEqualToString:@"period"] || [normalized isEqualToString:@"dot"]) { *keyCode = kVK_ANSI_Period; return YES; }
+    if ([normalized isEqualToString:@"slash"]) { *keyCode = kVK_ANSI_Slash; return YES; }
     if ([normalized isEqualToString:@"escape"] || [normalized isEqualToString:@"esc"]) { *keyCode = kVK_Escape; return YES; }
     if ([normalized isEqualToString:@"left"]) { *keyCode = kVK_LeftArrow; return YES; }
     if ([normalized isEqualToString:@"right"]) { *keyCode = kVK_RightArrow; return YES; }
@@ -634,6 +645,14 @@ static inline CFTimeInterval TUCNowSeconds(void) {
     self.heldModifierDescriptors = @[];
     self.heldNonModifierKeyCodes = @[];
     self.heldShortcutFlags = 0;
+}
+
+- (void)performShortcutChordSpec:(NSString *)shortcutSpec {
+    NSDictionary<NSString *, id> *descriptors = [self parseShortcutChordSpec:shortcutSpec];
+    if (descriptors == nil) {
+        return;
+    }
+    [self pressAndReleaseShortcutChordWithDescriptors:descriptors];
 }
 
 - (void)performShortcutSequenceSpec:(NSString *)shortcutSequenceSpec {

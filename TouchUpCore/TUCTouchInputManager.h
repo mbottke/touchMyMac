@@ -72,6 +72,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property BOOL threeFingerSwipeEnabled;
 
 /**
+ Enables/disables four-finger swipe up recognition for the floating keyboard.
+ Default value is YES.
+ */
+@property BOOL fourFingerSwipeUpKeyboardEnabled;
+
+/**
  Shortcut chord held while a five-finger long press is active. Empty string disables the gesture.
  Example: "fn" or "cmd+shift".
  */
@@ -79,7 +85,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  Shortcut sequence fired by a four-finger swipe left. Empty string disables the gesture.
- Example: "ctrl+a, delete".
+ Example: "cmd+a, delete".
  */
 @property (copy) NSString *fourFingerSwipeLeftSequenceSpec;
 
@@ -103,6 +109,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 
 - (void)triggerSystemAccessibilityAccessAlert;
+
+- (void)performShortcutChordSpec:(NSString *)shortcutSpec;
 
 @end
 

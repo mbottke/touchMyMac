@@ -50,6 +50,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)beginHoldingShortcutSpec:(NSString *)shortcutSpec;
 - (void)endHeldShortcut;
+- (void)performShortcutChordSpec:(NSString *)shortcutSpec;
 - (void)performShortcutSequenceSpec:(NSString *)shortcutSequenceSpec;
 - (void)performMissionControl;
 
