@@ -1,8 +1,14 @@
 # TouchMyMac
 
-TouchMyMac is a user-space touchscreen driver for macOS.
+Bring iPad-like touchscreen interaction to macOS.
 
-Many USB touch displays expose touch input through standard HID descriptors and work immediately on Windows, but do nothing on macOS. TouchMyMac reads that HID stream in user space, turns it into touch state, and injects mouse or keyboard events so an external touchscreen can control your Mac.
+TouchMyMac makes external touch displays actually useful on a Mac. It translates raw HID touch input into clicks, scrolling, dragging, gesture actions, shortcut triggers, and an on-screen keyboard, so a touchscreen can feel much closer to a first-class macOS input device instead of a passive display.
+
+This fork focuses on day-to-day usability: direct touch interaction, configurable multi-finger gestures, Mission Control access, floating keyboard support, and a cleaner settings and diagnostics experience.
+
+## Acknowledgements
+
+This project builds on the original TouchMyMac and TouchUpCore work by Sebastian Hueber. The current version keeps that foundation and extends it with additional gesture support, customizable shortcut mappings, a floating keyboard, updated settings UI, and ongoing macOS-focused refinements.
 
 ## What It Supports
 
@@ -58,11 +64,11 @@ The built-in floating keyboard is designed for occasional touchscreen text entry
 
 TouchMyMac should work with many touchscreens that already work on Windows, but hardware quality varies and some panels are noisier than others.
 
-Tested devices from the original project include:
+The current version of this fork has been tested on:
 
-- Iiyama TF3222MC
-- Iiyama T2336MSC-B2
-- 3M C4667PW
+- LG Smart Monitor Swing
+
+Other HID-compatible touchscreens may also work, but they are not currently validated by this fork.
 
 ## Build
 
