@@ -6,10 +6,6 @@ TouchMyMac makes external touch displays actually useful on a Mac. It translates
 
 This fork focuses on day-to-day usability: direct touch interaction, configurable multi-finger gestures, Mission Control access, floating keyboard support, and a cleaner settings and diagnostics experience.
 
-## Acknowledgements
-
-This project builds on the original TouchMyMac and TouchUpCore work by Sebastian Hueber. The current version keeps that foundation and extends it with additional gesture support, customizable shortcut mappings, a floating keyboard, updated settings UI, and ongoing macOS-focused refinements.
-
 ## What It Supports
 
 - Single-finger tap to click
@@ -113,6 +109,10 @@ If input is unstable, use the Diagnostics pane to inspect connection state, gest
 - TouchMyMac works entirely in user space.
 - Accessibility permission is required because the app injects input events into macOS.
 - Some gesture behavior is intentionally conservative to reduce accidental activation on noisy panels.
+
+## Acknowledgements
+
+This project builds on the original TouchMyMac and TouchUpCore work by Sebastian Hueber. The current version keeps that foundation and extends it with additional gesture support, customizable shortcut mappings, a floating keyboard, updated settings UI, and ongoing macOS-focused refinements.
 
 ## License
 
