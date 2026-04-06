@@ -247,6 +247,10 @@ struct SettingsView: View {
                 sectionDivider
                 settingValueRow("Assigned Screen", value: model.connectedTouchscreen?.name ?? "(Auto)")
             }
+
+            SettingsGroup(title: "About") {
+                footer
+            }
         }
     }
 
@@ -367,10 +371,6 @@ struct SettingsView: View {
                 sectionDivider
                 actionRow(title: "Reset Diagnostics", action: model.resetDiagnostics)
                 sectionDivider
-                actionRow(title: "Test Click", action: model.sendTestClickAtCursor)
-                sectionDivider
-                actionRow(title: "Test Scroll", action: model.sendTestScroll)
-                sectionDivider
                 actionRow(title: "Open Fullscreen Test Environment") {
                     (NSApp.delegate as? AppDelegate)?.showDebugOverlay()
                 }
@@ -410,7 +410,6 @@ struct SettingsView: View {
                 }
             }
 
-            footer
         }
     }
 
@@ -561,11 +560,11 @@ struct SettingsView: View {
 
             Spacer()
 
-            Link(destination: URL(string: "https://github.com/shueber/TouchMyMac")!) {
+            Link(destination: URL(string: "https://github.com/jinghuichen/touchMyMac")!) {
                 Label("GitHub", systemImage: "link")
             }
         }
-        .padding(.top, 4)
+        .padding(.vertical, 8)
     }
 
     func formatDate(_ date: Date?) -> String {
