@@ -66,6 +66,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property CGFloat scrollInertiaVelocityMultiplier;
 
 /**
+ Controls how fast regular drag-to-scroll moves relative to finger travel.
+ 1.0 keeps the original speed.
+ */
+@property CGFloat scrollSpeedMultiplier;
+
+/**
  Enables/disables three-finger swipe recognition.
  Default value is YES.
  */

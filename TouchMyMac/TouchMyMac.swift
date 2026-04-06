@@ -56,6 +56,7 @@ class TouchMyMac: NSObject, ObservableObject {
     @Published var fourFingerSwipeLeftSequenceSpec: String = "cmd+a, delete"
 
     @Published var isScrollInertiaEnabled = true
+    @Published var scrollSpeedMultiplier: CGFloat = 1.4
     @Published var scrollInertiaDecelerationPerFrame: CGFloat = 0.95
     @Published var scrollInertiaVelocityMultiplier: CGFloat = 1.0
     
@@ -476,6 +477,7 @@ extension TouchMyMac {
             "fiveFingerHoldShortcutSpec" : "fn",
             "fourFingerSwipeLeftSequenceSpec" : "cmd+a, delete",
             "isScrollInertiaEnabled" : true,
+            "scrollSpeedMultiplier" : 1.4,
             "scrollInertiaDecelerationPerFrame" : 0.95,
             "scrollInertiaVelocityMultiplier" : 1.0
         ])
@@ -499,6 +501,7 @@ extension TouchMyMac {
             $fiveFingerHoldShortcutSpec.assign(to: \.fiveFingerHoldShortcutSpec, on: touchManager),
             $fourFingerSwipeLeftSequenceSpec.assign(to: \.fourFingerSwipeLeftSequenceSpec, on: touchManager),
             $isScrollInertiaEnabled.assign(to: \.scrollInertiaEnabled, on: touchManager),
+            $scrollSpeedMultiplier.assign(to: \.scrollSpeedMultiplier, on: touchManager),
             $scrollInertiaDecelerationPerFrame.assign(to: \.scrollInertiaDecelerationPerFrame, on: touchManager),
             $scrollInertiaVelocityMultiplier.assign(to: \.scrollInertiaVelocityMultiplier, on: touchManager)
         ]
@@ -522,9 +525,11 @@ extension TouchMyMac {
         touchManager.fourFingerSwipeLeftSequenceSpec = fourFingerSwipeLeftSequenceSpec
 
         isScrollInertiaEnabled = defaults.bool(forKey: "isScrollInertiaEnabled")
+        scrollSpeedMultiplier = CGFloat(defaults.double(forKey: "scrollSpeedMultiplier"))
         scrollInertiaDecelerationPerFrame = CGFloat(defaults.double(forKey: "scrollInertiaDecelerationPerFrame"))
         scrollInertiaVelocityMultiplier = CGFloat(defaults.double(forKey: "scrollInertiaVelocityMultiplier"))
         touchManager.scrollInertiaEnabled = isScrollInertiaEnabled
+        touchManager.scrollSpeedMultiplier = scrollSpeedMultiplier
         touchManager.scrollInertiaDecelerationPerFrame = scrollInertiaDecelerationPerFrame
         touchManager.scrollInertiaVelocityMultiplier = scrollInertiaVelocityMultiplier
     }
@@ -546,6 +551,7 @@ extension TouchMyMac {
         defaults.set(fourFingerSwipeLeftSequenceSpec, forKey: "fourFingerSwipeLeftSequenceSpec")
 
         defaults.set(isScrollInertiaEnabled, forKey: "isScrollInertiaEnabled")
+        defaults.set(Double(scrollSpeedMultiplier), forKey: "scrollSpeedMultiplier")
         defaults.set(Double(scrollInertiaDecelerationPerFrame), forKey: "scrollInertiaDecelerationPerFrame")
         defaults.set(Double(scrollInertiaVelocityMultiplier), forKey: "scrollInertiaVelocityMultiplier")
     }
@@ -771,6 +777,10 @@ extension TouchMyMac {
         case \.isScrollInertiaEnabled:
             return("Scroll Inertia",
                    "Keeps scrolling for a short time after you lift your finger (iPad-like).")
+
+        case \.scrollSpeedMultiplier:
+            return("Scroll Speed",
+                   "Scales regular one-finger drag scrolling. Higher values scroll faster for the same finger travel.")
 
         case \.scrollInertiaDecelerationPerFrame:
             return("Decay Speed",

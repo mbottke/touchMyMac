@@ -119,6 +119,16 @@ struct SettingsView: View {
                 SettingsExplanationLabel(labels: model.uiLabels(for: \.isScrollInertiaEnabled))
             }
 
+            let scrollSpeed: Binding<Double> = Binding {
+                Double(model.scrollSpeedMultiplier)
+            } set: { value in
+                model.scrollSpeedMultiplier = CGFloat(value)
+            }
+
+            Slider(value: scrollSpeed, in: 0.5...3.0, step: 0.1) {
+                SettingsExplanationLabel(labels: model.uiLabels(for: \.scrollSpeedMultiplier))
+            }
+
             let amount: Binding<Double> = Binding {
                 Double(model.scrollInertiaVelocityMultiplier)
             } set: { value in

@@ -23,6 +23,7 @@
 @property (strong) NSDate *cursorTouchBeganDate;
 @property CGPoint cursorTouchStartLocation;
 @property TUCCursorAction lastPerformedAction;
+@property BOOL suppressEndedPrimaryTouchAction;
 
 @property CGFloat pinchDistance;
 @property BOOL hasLastScrollLocation;
@@ -327,6 +328,7 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
     [[TUCCursorUtilities sharedInstance] stopMagnifying];
     self.hasLastScrollLocation = NO;
     self.lastPerformedAction = TUCCursorActionNone;
+    self.suppressEndedPrimaryTouchAction = NO;
 
     self.identifiedMultitouchGesture = _TUCCursorGestureNone;
     self.gestureAdditionalTouch = nil;
@@ -538,6 +540,7 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
             && downVerticalTravelMM >= downHorizontalTravelMM;
 
         if (!self.fourFingerSwipeUpTriggered && shouldTriggerUp && upVerticalTravelMM >= leftHorizontalTravelMM) {
+            self.suppressEndedPrimaryTouchAction = YES;
             [self performMouseEventForGesture:TUCCursorGestureFourFingerSwipeUp];
             self.fourFingerSwipeUpTriggered = YES;
             return;
@@ -545,12 +548,14 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
 
         if (!self.fourFingerSwipeDownTriggered && shouldTriggerDown
             && downVerticalTravelMM >= leftHorizontalTravelMM) {
+            self.suppressEndedPrimaryTouchAction = YES;
             [self performMouseEventForGesture:TUCCursorGestureFourFingerSwipeDown];
             self.fourFingerSwipeDownTriggered = YES;
             return;
         }
 
         if (!self.fourFingerSwipeLeftTriggered && shouldTriggerLeft) {
+            self.suppressEndedPrimaryTouchAction = YES;
             [self performMouseEventForGesture:TUCCursorGestureFourFingerSwipeLeft];
             self.fourFingerSwipeLeftTriggered = YES;
             return;
@@ -592,6 +597,7 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
         self.debugThreeFingerHorizontalTravelMM = horizontalTravelMM;
 
         if (!self.threeFingerSwipeTriggered && shouldTrigger) {
+            self.suppressEndedPrimaryTouchAction = YES;
             [self performMouseEventForGesture:TUCCursorGestureThreeFingerSwipeUp];
             self.threeFingerSwipeTriggered = YES;
             self.debugThreeFingerTriggered = YES;
@@ -629,23 +635,23 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
         // Only interpret liftoff as a tap when no other fingers are still active.
         BOOL noOtherActiveTouches = touches.count == 0;
         BOOL shouldTreatAsTap = noOtherActiveTouches && (self.cursorTouchQualifiedForTap || shortTouchWithSmallTravel);
+        BOOL suppressEndedAction = self.suppressEndedPrimaryTouchAction;
+        TUCCursorGesture completedMultitouchGesture = self.identifiedMultitouchGesture;
         
-        if (self.identifiedMultitouchGesture == _TUCCursorGestureNone ) {
+        if (!suppressEndedAction && completedMultitouchGesture == _TUCCursorGestureNone ) {
             if (self.cursorTouchDidHold) {
                 [self performMouseEventForGesture:TUCCursorGestureHoldAndDrag];
             } else if (!shouldTreatAsTap) {
                 [self performMouseEventForGesture:TUCCursorGestureDrag];
             }
+        } else if (!suppressEndedAction && completedMultitouchGesture != _TUCCursorGestureNone && !shouldTreatAsTap) {
+            [self performMouseEventForGesture:completedMultitouchGesture];
         }
         
         [self stopCurrentGesture];
         
-        if (shouldTreatAsTap) {
+        if (!suppressEndedAction && shouldTreatAsTap) {
             [self performMouseEventForGesture:TUCCursorGestureTap];
-        } else {
-            if (self.identifiedMultitouchGesture != _TUCCursorGestureNone) {
-                [self performMouseEventForGesture:self.identifiedMultitouchGesture];
-            }
         }
         
         return;
@@ -675,7 +681,7 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
         }
         // Keep reference in sync every frame to avoid stale pointer causing pinch latch.
         self.gestureAdditionalTouch = otherTouch;
-        
+
         if (self.identifiedMultitouchGesture == _TUCCursorGestureNone ) {
             if (self.gestureAdditionalTouch.isActive) {
                 CGPoint trajectoryA = [cursorTouch trajectorySign];
@@ -849,7 +855,9 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
             CGPoint translation = CGPointMake(screenLocation.x - self.lastScrollLocation.x,
                                               screenLocation.y - self.lastScrollLocation.y);
             self.lastScrollLocation = screenLocation;
-            [utils scroll:translation phase:touch.phase];
+            CGPoint scaledTranslation = CGPointMake(translation.x * self.scrollSpeedMultiplier,
+                                                   translation.y * self.scrollSpeedMultiplier);
+            [utils scroll:scaledTranslation phase:touch.phase];
             
             if (touch.phase == NSTouchPhaseEnded || touch.phase == NSTouchPhaseCancelled) {
                 self.hasLastScrollLocation = NO;
@@ -1161,6 +1169,7 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
         self.scrollInertiaEnabled = YES;
         self.scrollInertiaDecelerationPerFrame = 0.95;
         self.scrollInertiaVelocityMultiplier = 1.0;
+        self.scrollSpeedMultiplier = 1.4;
         self.threeFingerSwipeEnabled = YES;
         self.fourFingerSwipeUpKeyboardEnabled = YES;
         self.fiveFingerHoldShortcutSpec = @"fn";

@@ -321,6 +321,7 @@ static inline CFTimeInterval TUCNowSeconds(void) {
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
 }
+
 /**
  integrated double click support: needs checks time between clicks and spatial distance
  */
