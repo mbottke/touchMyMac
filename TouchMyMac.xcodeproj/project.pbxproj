@@ -147,7 +147,7 @@
 				7052F453298D30D10066014F /* HIDInterpreter.h */,
 				7052F454298D30D10066014F /* HIDInterpreter.c */,
 			);
-			path = TouchUpCore;
+			path = Core;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */

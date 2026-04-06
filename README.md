@@ -99,7 +99,7 @@ If input is unstable, use the Diagnostics pane to inspect connection state, gest
 
 - `TouchMyMac/`
   App UI, settings, status item integration, diagnostics, and floating keyboard
-- `TouchUpCore/`
+- `Core/`
   HID parsing, touch tracking, gesture recognition, and event injection
 - `scripts/`
   Small project utilities
