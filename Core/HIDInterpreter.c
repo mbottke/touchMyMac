@@ -6,6 +6,7 @@
 //
 
 #include "HIDInterpreter.h"
+#include <unistd.h>
 #include "TUCTouchInputManager-C.h"
 
 #include <mach/mach_port.h>
@@ -44,6 +45,16 @@ Boolean gTouchscreenUsesHybridMode = FALSE;
 
 
 CFMutableArrayRef gContactIdentifiers;
+
+/// Vendor "device certification status" feature report (vendor page 0xFF00, usage 0xC5).
+/// Windows reads this during enumeration; reading it is what takes a Windows-spec panel
+/// out of single-touch mouse emulation and into true multitouch digitizer reporting.
+static const uint8_t kDeviceCertificationReportID = 0x44;
+static const uint8_t kContactCountMaximumReportID = 0x0A;
+static const int     kCertificationReadAttempts   = 5;
+
+/// Contact Count Maximum as reported by the panel, 0 when unknown. Informational.
+uint8_t gReportedContactCountMaximum = 0;
 
 
 #pragma mark General Debug Utilities
@@ -145,11 +156,12 @@ CFIndex ValueOfElement(IOHIDElementRef element) {
 
 
 void StoreInputValue(IOHIDValueRef hidValue) {
-    
+
     CFIndex value = IOHIDValueGetIntegerValue(hidValue);
     IOHIDElementRef elem = IOHIDValueGetElement(hidValue);
-    
+
     CFIndex keyValue = StorageKeyForElement(elem);
+
     
     CFNumberRef key = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &keyValue);
     
@@ -202,8 +214,14 @@ void IdentifyElements(IOHIDElementRef anyElement, Boolean printTree) {
     }
     
     gApplicationCollectionElement = applicationCollection;
-    
-    
+
+    // Idempotent: this can be reached both from the matching-callback bootstrap and from
+    // the manager's input-value callback. Without clearing, the same logical collections
+    // get appended twice and every touch is dispatched twice.
+    if (gTouchCollectionElements != NULL) {
+        CFArrayRemoveAllValues(gTouchCollectionElements);
+    }
+
     CFArrayRef children = IOHIDElementGetChildren(applicationCollection);
     CFIndex numChildren = CFArrayGetCount(children);
     
@@ -328,8 +346,9 @@ void PrintTouchCollection(IOHIDElementRef collection) {
  */
 
 void DispatchTouchDataForCollection(IOHIDElementRef collection) {
-    
+
     CFArrayRef children = IOHIDElementGetChildren(collection);
+
 
     CGFloat x = -1;
     CGFloat y = -1;
@@ -352,18 +371,32 @@ void DispatchTouchDataForCollection(IOHIDElementRef collection) {
         
         if (value != kCFNotFound) {
             if (page == kHIDPage_GenericDesktop) {
-                if (usage == kHIDUsage_GD_X) {
+                if (usage == kHIDUsage_GD_X || usage == kHIDUsage_GD_Y) {
                     CGFloat min = (CGFloat)IOHIDElementGetLogicalMin(element);
                     CGFloat max = (CGFloat)IOHIDElementGetLogicalMax(element);
+
+                    // Some panels declare the coordinate with Report Count 2 (the 16-bit
+                    // value is transmitted twice). macOS coalesces the pair into a single
+                    // 32-bit element, so the value arrives as 0xVVVVVVVV with the real
+                    // coordinate duplicated in both halves. Recover the low half.
+                    if (value > (CFIndex)max) {
+                        CFIndex low  = value & 0xFFFF;
+                        CFIndex high = (value >> 16) & 0xFFFF;
+                        if (low == high && low <= (CFIndex)max) {
+                            value = low;
+                        } else if (low <= (CFIndex)max) {
+                            value = low;
+                        }
+                    }
+
                     CGFloat curr = (CGFloat)value;
-                    x = ( (curr - min) / (max - min) ) + min;
-                }
-                
-                else if (usage == kHIDUsage_GD_Y) {
-                    CGFloat min = (CGFloat)IOHIDElementGetLogicalMin(element);
-                    CGFloat max = (CGFloat)IOHIDElementGetLogicalMax(element);
-                    CGFloat curr = (CGFloat)value;
-                    y = ( (curr - min) / (max - min) ) + min;
+                    CGFloat normalized = ( (curr - min) / (max - min) ) + min;
+
+                    if (usage == kHIDUsage_GD_X) {
+                        x = normalized;
+                    } else {
+                        y = normalized;
+                    }
                 }
             } //kHIDPage_GenericDesktop
             
@@ -384,6 +417,7 @@ void DispatchTouchDataForCollection(IOHIDElementRef collection) {
             } // kHIDPage_Digitizer
         }
     }
+
     TouchInputManagerUpdateTouchPosition(gTouchManager, contactID, x, y, (int)tipSwitch, (int)isValid);
     
 //    if (width != kCFNotFound && height != kCFNotFound && azimuth != kCFNotFound) {
@@ -414,6 +448,7 @@ void DispatchTouches(void) {
     CFIndex numElementsToPost = CFArrayGetCount(gTouchCollectionElements);
     if (numUpdates < numElementsToPost)
         numElementsToPost = numUpdates;
+
     
     // update the touch data
     for (CFIndex i=0; i<numElementsToPost; i++) {
@@ -452,7 +487,6 @@ static void Handle_QueueValueAvailable(
             IOReturn                result,
             void * _Nullable        inSender
 ) {
-    
     do {
         IOHIDValueRef valueRef = IOHIDQueueCopyNextValueWithTimeout((IOHIDQueueRef) inSender, 0.);
         if (!valueRef)  {
@@ -524,14 +558,118 @@ static void Handle_DeviceMatchingCallback(
     }
     
     
-    IOHIDQueueRef queue = IOHIDQueueCreate(kCFAllocatorDefault, inIOHIDDeviceRef, 1000, kNilOptions);
-    
-    if (CFGetTypeID(queue) != IOHIDQueueGetTypeID()) {
-        // this is not a valid HID queue reference!
+    if (inIOHIDDeviceRef == NULL) {
+        fprintf(stderr, "%s: matching callback fired with a NULL device.\n", __PRETTY_FUNCTION__);
+        return;
     }
-    
+
+    // On macOS 26/27 the digitizer is TCC gated (RequiresTCCAuthorization = Yes in the
+    // IOHIDDevice registry entry). The matching callback can fire before the device is
+    // actually usable, and IOHIDQueueCreate then returns NULL. Open the device first so
+    // we fail loudly on a missing Input Monitoring grant instead of crashing.
+    // Seize the digitizer. Without this, macOS's own HID event system keeps the device
+    // open (ioreg: DeviceOpenedByEventSystem = Yes) and synthesizes single-pointer mouse
+    // events mapped to the main display, which fights us and makes multi-touch gestures
+    // impossible. Seizing stops the system from generating events for this device so this
+    // process is the sole consumer. Fall back to a shared open if seizing is refused.
+    IOReturn deviceOpenResult = IOHIDDeviceOpen(inIOHIDDeviceRef, kIOHIDOptionsTypeSeizeDevice);
+    if (deviceOpenResult != kIOReturnSuccess) {
+        fprintf(stderr, "%s: seize failed: 0x%x, retrying as shared open\n",
+                __PRETTY_FUNCTION__, deviceOpenResult);
+        deviceOpenResult = IOHIDDeviceOpen(inIOHIDDeviceRef, kIOHIDOptionsTypeNone);
+    } else {
+
+    }
+    if (deviceOpenResult != kIOReturnSuccess) {
+        fprintf(stderr, "%s: IOHIDDeviceOpen failed: 0x%x (Input Monitoring not granted yet?)\n",
+                __PRETTY_FUNCTION__, deviceOpenResult);
+        return;
+    }
+
+    // Windows-spec HID touchscreens boot in single-touch absolute-mouse emulation and only
+    // start emitting true multitouch digitizer reports once the host reads the vendor
+    // "device certification status" feature report (report id 0x44, vendor page 0xFF00,
+    // usage 0xC5, 256 bytes). Windows does this during enumeration; macOS never does, so the
+    // panel stays a single absolute pointer forever. Reading it here flips the device into
+    // multitouch mode. Report 0x0A (Contact Count Maximum) is read as well: some controllers
+    // gate the switch on that instead.
+    {
+        // The first attempt usually returns kIOReturnTimeout while the controller is still
+        // settling after enumeration, so retry before giving up.
+        IOReturn certResult = kIOReturnError;
+        for (int attempt = 0; attempt < kCertificationReadAttempts; attempt++) {
+            uint8_t certBuf[256];
+            CFIndex certLen = sizeof(certBuf);
+            certResult = IOHIDDeviceGetReport(inIOHIDDeviceRef, kIOHIDReportTypeFeature,
+                                              kDeviceCertificationReportID, certBuf, &certLen);
+            if (certResult == kIOReturnSuccess) {
+                break;
+            }
+            usleep(250000);
+        }
+
+        if (certResult != kIOReturnSuccess) {
+            fprintf(stderr, "%s: could not read the device certification report (0x%x); "
+                            "the panel may stay in single-touch mouse emulation.\n",
+                    __PRETTY_FUNCTION__, certResult);
+        }
+
+        // Contact Count Maximum, purely informational.
+        uint8_t maxBuf[16];
+        CFIndex maxLen = sizeof(maxBuf);
+        if (IOHIDDeviceGetReport(inIOHIDDeviceRef, kIOHIDReportTypeFeature,
+                                 kContactCountMaximumReportID, maxBuf, &maxLen) == kIOReturnSuccess
+            && maxLen >= 2) {
+            gReportedContactCountMaximum = maxBuf[1];
+        }
+    }
+
+    IOHIDQueueRef queue = IOHIDQueueCreate(kCFAllocatorDefault, inIOHIDDeviceRef, 1000, kNilOptions);
+
+    // NB: the original check called CFGetTypeID(queue) unconditionally, which segfaults
+    // when IOHIDQueueCreate returns NULL, and then fell through and used the queue anyway.
+    if (queue == NULL || CFGetTypeID(queue) != IOHIDQueueGetTypeID()) {
+        fprintf(stderr, "%s: IOHIDQueueCreate returned an invalid queue; aborting registration.\n",
+                __PRETTY_FUNCTION__);
+        if (queue != NULL) {
+            CFRelease(queue);
+        }
+        return;
+    }
+
     IOHIDQueueRegisterValueAvailableCallback(queue, Handle_QueueValueAvailable, NULL);
     IOHIDQueueScheduleWithRunLoop(queue, gRunLoopRef, kCFRunLoopCommonModes);
+
+    // Bootstrap element identification here rather than waiting for the HID manager's
+    // input-value callback. That callback is what normally calls IdentifyElements() and
+    // populates the queue, but it does not fire for a seized device, which would leave
+    // gTouchCollectionElements empty and make DispatchTouches() a no-op: reports arrive
+    // but no touches are ever produced.
+    if (!gAreElementRefsSet) {
+        CFArrayRef allElements =
+            IOHIDDeviceCopyMatchingElements(inIOHIDDeviceRef, NULL, kIOHIDOptionsTypeNone);
+        if (allElements != NULL) {
+            CFIndex elementCount = CFArrayGetCount(allElements);
+            if (elementCount > 0) {
+                IdentifyElements((IOHIDElementRef)CFArrayGetValueAtIndex(allElements, 0), FALSE);
+                gAreElementRefsSet = 1;
+
+                for (CFIndex i = 0; i < elementCount; i++) {
+                    IOHIDElementRef e = (IOHIDElementRef)CFArrayGetValueAtIndex(allElements, i);
+                    if (IOHIDElementGetType(e) != kIOHIDElementTypeCollection &&
+                        !IOHIDQueueContainsElement(queue, e)) {
+                        IOHIDQueueAddElement(queue, e);
+                    }
+                }
+            }
+            setvbuf(stderr, NULL, _IONBF, 0);
+            CFRelease(allElements);
+        } else {
+            fprintf(stderr, "%s: IOHIDDeviceCopyMatchingElements returned NULL; "
+                            "touch elements could not be enumerated.\n", __PRETTY_FUNCTION__);
+        }
+    }
+
     IOHIDQueueStart(queue);
     gQueue = queue;
     
@@ -624,9 +762,14 @@ void OpenHIDManager(void *delegate) {
     }
     
     gHidManager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
-    
-    if (CFGetTypeID(gHidManager) != IOHIDManagerGetTypeID()) {
-        printf("OH CRAP THIS IS NOT AN HID MANAGER");
+
+    // Same NULL-deref shape as the queue check below: bail instead of calling
+    // CFGetTypeID on a NULL manager.
+    if (gHidManager == NULL || CFGetTypeID(gHidManager) != IOHIDManagerGetTypeID()) {
+        fprintf(stderr, "%s: IOHIDManagerCreate failed; touch input unavailable.\n",
+                __PRETTY_FUNCTION__);
+        gHidManager = NULL;
+        return;
     }
         
     
@@ -662,7 +805,13 @@ void OpenHIDManager(void *delegate) {
     IOHIDManagerScheduleWithRunLoop(gHidManager, gRunLoopRef,
                                     kCFRunLoopCommonModes);
 
-    IOReturn openRes = IOHIDManagerOpen(gHidManager, kIOHIDOptionsTypeNone);
+    // Seize at the manager level too, so matched devices are exclusive from the outset.
+    IOReturn openRes = IOHIDManagerOpen(gHidManager, kIOHIDOptionsTypeSeizeDevice);
+    if (openRes != kIOReturnSuccess) {
+        fprintf(stderr, "%s: manager seize failed: 0x%x, retrying shared\n",
+                __PRETTY_FUNCTION__, openRes);
+        openRes = IOHIDManagerOpen(gHidManager, kIOHIDOptionsTypeNone);
+    }
     if (openRes != kIOReturnSuccess) {
         fprintf(stderr, "%s: IOHIDManagerOpen failed: 0x%x\n", __PRETTY_FUNCTION__, openRes);
     }

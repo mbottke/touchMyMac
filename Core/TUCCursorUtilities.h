@@ -36,6 +36,23 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)moveCursorTo:(CGPoint)aLocation;
 
+#pragma mark Touch session cursor handling
+
+/// When YES, the pointer is hidden for the duration of a touch interaction and
+/// revealed again when the last finger lifts.
+@property (nonatomic) BOOL hidesCursorDuringTouch;
+
+/// When YES, the pointer is warped back to wherever it was before the touch began
+/// once the last finger lifts. Note this restores the pointer only, not window focus:
+/// focus follows the click and cannot be undone.
+@property (nonatomic) BOOL restoresCursorAfterTouch;
+
+/// Called when the first finger of an interaction lands.
+- (void)beginTouchSession;
+
+/// Called when the last finger lifts.
+- (void)endTouchSession;
+
 - (void)performClickAt:(CGPoint)aLocation;
 
 - (void)performSecondaryClickAt:(CGPoint)aLocation;

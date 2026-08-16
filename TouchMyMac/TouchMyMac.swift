@@ -197,8 +197,22 @@ class TouchMyMac: NSObject, ObservableObject {
         
         // search for the preferred screen, also important if user rearranged screens (and screen numbers)
         if !self.identifyPreferredOrNoScreen() {
-            self.connectedTouchscreen = self.connectedScreens.last
+            self.connectedTouchscreen = self.bestGuessTouchscreen()
         }
+    }
+
+    /// A USB HID digitizer is never the built-in panel on a Mac, so when we have no
+    /// explicit assignment prefer the first external display. `connectedScreens.last`
+    /// is not reliable: NSScreen ordering is not guaranteed, and on a laptop with one
+    /// external display it can resolve to the built-in screen, which sends every touch
+    /// to the wrong display.
+    func bestGuessTouchscreen() -> TUCScreen? {
+        if let external = connectedScreens.first(where: {
+            CGDisplayIsBuiltin(CGDirectDisplayID($0.id)) == 0
+        }) {
+            return external
+        }
+        return connectedScreens.last
     }
     
     
@@ -479,7 +493,9 @@ extension TouchMyMac {
             "isScrollInertiaEnabled" : true,
             "scrollSpeedMultiplier" : 1.4,
             "scrollInertiaDecelerationPerFrame" : 0.95,
-            "scrollInertiaVelocityMultiplier" : 1.0
+            "scrollInertiaVelocityMultiplier" : 1.0,
+            "hidesCursorDuringTouch" : true,
+            "restoresCursorAfterTouch" : true
         ])
         
         holdDuration = defaults.double(forKey: "holdDuration")
@@ -519,6 +535,12 @@ extension TouchMyMac {
         } else {
             fourFingerSwipeLeftSequenceSpec = "cmd+a, delete"
         }
+        // Touch-session cursor behaviour. Hiding keeps the pointer from sitting on the
+        // touch panel like a mouse cursor; restoring returns it to wherever you were
+        // working before the touch. Focus still follows the click either way.
+        touchManager.hidesCursorDuringTouch = defaults.object(forKey: "hidesCursorDuringTouch") as? Bool ?? true
+        touchManager.restoresCursorAfterTouch = defaults.object(forKey: "restoresCursorAfterTouch") as? Bool ?? true
+
         touchManager.threeFingerSwipeEnabled = isThreeFingerSwipeEnabled
         touchManager.fourFingerSwipeUpKeyboardEnabled = isFourFingerSwipeUpKeyboardEnabled
         touchManager.fiveFingerHoldShortcutSpec = fiveFingerHoldShortcutSpec
@@ -617,7 +639,7 @@ extension TouchMyMac: TUCTouchDelegate {
     
     
     func touchscreen() -> TUCScreen? {
-        self.connectedTouchscreen ?? self.connectedScreens.last
+        self.connectedTouchscreen ?? self.bestGuessTouchscreen()
     }
 
     

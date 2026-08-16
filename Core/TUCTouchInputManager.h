@@ -95,6 +95,14 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property (copy) NSString *fourFingerSwipeLeftSequenceSpec;
 
+/// Hide the pointer for the duration of a touch interaction, revealing it when the last
+/// finger lifts. Makes the touch display behave like a tablet rather than a mouse screen.
+@property (nonatomic) BOOL hidesCursorDuringTouch;
+
+/// Warp the pointer back to where it was before the touch once the last finger lifts.
+/// Restores the pointer only: window focus follows the click and cannot be undone.
+@property (nonatomic) BOOL restoresCursorAfterTouch;
+
 @property (readonly) NSInteger debugProcessFrameID;
 @property (readonly) NSInteger debugActiveTouchCount;
 @property (readonly) BOOL debugThreeFingerTracking;

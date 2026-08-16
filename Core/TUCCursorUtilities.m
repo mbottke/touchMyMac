@@ -32,6 +32,11 @@
 @property (copy) NSArray<NSNumber *> *heldNonModifierKeyCodes;
 @property CGEventFlags heldShortcutFlags;
 
+@property BOOL inTouchSession;
+@property BOOL cursorHiddenForTouch;
+@property BOOL hasCursorLocationBeforeTouch;
+@property CGPoint cursorLocationBeforeTouch;
+
 @end
 
 @implementation TUCCursorUtilities
@@ -80,6 +85,66 @@ static const useconds_t kShortcutSequenceStepDelayMicroseconds = 30000;
     CGPoint location = CGEventGetLocation(dummy);
     CFRelease(dummy);
     return location;
+}
+
+
+#pragma mark - Touch session cursor handling
+
+// CGDisplayHideCursor only affects the pointer when the calling process is the active
+// application. TouchMyMac is a background agent (LSUIElement), so without opting in via
+// this WindowServer connection property the hide call silently does nothing.
+typedef int TUCConnectionID;
+extern TUCConnectionID _CGSDefaultConnection(void) __attribute__((weak_import));
+extern CGError CGSSetConnectionProperty(TUCConnectionID cid, TUCConnectionID targetCID,
+                                        CFStringRef key, CFTypeRef value) __attribute__((weak_import));
+
+- (void)enableBackgroundCursorHiding {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        if (_CGSDefaultConnection == NULL || CGSSetConnectionProperty == NULL) {
+            fprintf(stderr, "TouchMyMac: background cursor hiding unavailable on this system\n");
+            return;
+        }
+        TUCConnectionID cid = _CGSDefaultConnection();
+        CGSSetConnectionProperty(cid, cid, CFSTR("SetsCursorInBackground"), kCFBooleanTrue);
+    });
+}
+
+- (void)beginTouchSession {
+    if (self.inTouchSession) {
+        return;
+    }
+    self.inTouchSession = YES;
+
+    if (self.restoresCursorAfterTouch) {
+        self.cursorLocationBeforeTouch = [self currentCursorLocation];
+        self.hasCursorLocationBeforeTouch = YES;
+    }
+
+    if (self.hidesCursorDuringTouch && !self.cursorHiddenForTouch) {
+        [self enableBackgroundCursorHiding];
+        CGDisplayHideCursor(kCGDirectMainDisplay);
+        self.cursorHiddenForTouch = YES;
+    }
+}
+
+- (void)endTouchSession {
+    if (!self.inTouchSession) {
+        return;
+    }
+    self.inTouchSession = NO;
+
+    if (self.cursorHiddenForTouch) {
+        CGDisplayShowCursor(kCGDirectMainDisplay);
+        self.cursorHiddenForTouch = NO;
+    }
+
+    if (self.restoresCursorAfterTouch && self.hasCursorLocationBeforeTouch) {
+        CGWarpMouseCursorPosition(self.cursorLocationBeforeTouch);
+        // Warping decouples the hardware pointer from the cursor until reassociated.
+        CGAssociateMouseAndMouseCursorPosition(true);
+    }
+    self.hasCursorLocationBeforeTouch = NO;
 }
 
 - (BOOL)resolveShortcutToken:(NSString *)token
@@ -551,8 +616,12 @@ static inline CFTimeInterval TUCNowSeconds(void) {
         gesturePhase = kCGGesturePhaseChanged;
     }
     
-    CGEventSetIntegerValueField(event, 132, phase);
-    
+    // Field 132 is the CGGesturePhase, not the NSTouchPhase. The two enums only coincide
+    // for Began(1) and Changed/Moved(2). NSTouchPhaseEnded is 8, which is
+    // kCGGesturePhaseCancelled, so posting `phase` here cancelled every pinch on release
+    // instead of committing it.
+    CGEventSetIntegerValueField(event, 132, gesturePhase);
+
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
 }

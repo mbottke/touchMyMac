@@ -24,6 +24,8 @@
 @property CGPoint cursorTouchStartLocation;
 @property TUCCursorAction lastPerformedAction;
 @property BOOL suppressEndedPrimaryTouchAction;
+@property BOOL sawAdditionalFingerDuringCursorTouch;
+@property BOOL secondaryClickFiredForCursorTouch;
 
 @property CGFloat pinchDistance;
 @property BOOL hasLastScrollLocation;
@@ -112,6 +114,27 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
 }
 
 
+#pragma mark   Touch session cursor settings
+
+// Forwarded to TUCCursorUtilities, which is not part of the framework's public headers.
+
+- (BOOL)hidesCursorDuringTouch {
+    return [TUCCursorUtilities sharedInstance].hidesCursorDuringTouch;
+}
+
+- (void)setHidesCursorDuringTouch:(BOOL)value {
+    [TUCCursorUtilities sharedInstance].hidesCursorDuringTouch = value;
+}
+
+- (BOOL)restoresCursorAfterTouch {
+    return [TUCCursorUtilities sharedInstance].restoresCursorAfterTouch;
+}
+
+- (void)setRestoresCursorAfterTouch:(BOOL)value {
+    [TUCCursorUtilities sharedInstance].restoresCursorAfterTouch = value;
+}
+
+
 - (void)didConnectTouchscreen {
     [self.delegate touchscreenDidConnect];
 }
@@ -139,17 +162,33 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
         }
     }
     
-    if ([[self activeTouches] count] == 0) {
+    BOOL hasActiveTouches = [[self activeTouches] count] > 0;
+
+    if (!hasActiveTouches) {
         [self stopCurrentGesture];
     }
-    
+
     ++self.currentFrameID;
     self.debugProcessFrameID = self.currentFrameID;
     self.debugActiveTouchCount = (NSInteger)[[self activeTouches] count];
-    
+
+    // Open the session before any cursor warping so the pre-touch pointer position is
+    // captured accurately.
+    if (hasActiveTouches) {
+        [[TUCCursorUtilities sharedInstance] beginTouchSession];
+    }
+
     [self processTouchesForCursorInput];
+
+    // Close it only after cursor input has been processed: the liftoff tap is posted from
+    // inside processTouchesForCursorInput, and restoring the pointer first would make that
+    // click land at the restored location instead of under the finger.
+    if (!hasActiveTouches) {
+        [[TUCCursorUtilities sharedInstance] endTouchSession];
+    }
+
     [self.delegate inputDiagnosticsDidChange];
-    
+
 }
 
 - (void)handleTouchInactivityTimer:(NSTimer *)timer {
@@ -607,8 +646,19 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
     }
 
     if (phase == NSTouchPhaseBegan) {
+        self.sawAdditionalFingerDuringCursorTouch = NO;
+        self.secondaryClickFiredForCursorTouch = NO;
         [self performMouseEventForGesture:TUCCursorGestureTouchDown];
         return;
+    }
+
+    // Remember that a second finger was present at any point during this touch. The
+    // mid-gesture detector in checkForSecondaryClick only fires if the second finger's
+    // liftoff happens to be observed while the primary is still down, which misses most
+    // two-finger taps (measured: 2 of 5). This flag lets the liftoff handler below make
+    // the call reliably instead.
+    if (touches.count >= 2) {
+        self.sawAdditionalFingerDuringCursorTouch = YES;
     }
     
     
@@ -637,8 +687,22 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
         BOOL shouldTreatAsTap = noOtherActiveTouches && (self.cursorTouchQualifiedForTap || shortTouchWithSmallTravel);
         BOOL suppressEndedAction = self.suppressEndedPrimaryTouchAction;
         TUCCursorGesture completedMultitouchGesture = self.identifiedMultitouchGesture;
-        
-        if (!suppressEndedAction && completedMultitouchGesture == _TUCCursorGestureNone ) {
+
+        // A two-finger tap that checkForSecondaryClick already handled mid-gesture must not
+        // also emit a left click here: that second click is what was slamming the context
+        // menu shut the instant it opened.
+        BOOL alreadySecondaryClicked = self.secondaryClickFiredForCursorTouch;
+
+        // A two-finger tap whose second finger lifted too late for the mid-gesture detector
+        // still ends up here. Resolve it as a secondary click instead of a plain tap.
+        BOOL isLateSecondaryTap = !alreadySecondaryClicked
+            && self.sawAdditionalFingerDuringCursorTouch
+            && completedMultitouchGesture == _TUCCursorGestureNone
+            && !self.cursorTouchDidHold
+            && shouldTreatAsTap;
+
+        if (!suppressEndedAction && !alreadySecondaryClicked && !isLateSecondaryTap
+            && completedMultitouchGesture == _TUCCursorGestureNone ) {
             if (self.cursorTouchDidHold) {
                 [self performMouseEventForGesture:TUCCursorGestureHoldAndDrag];
             } else if (!shouldTreatAsTap) {
@@ -647,13 +711,18 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
         } else if (!suppressEndedAction && completedMultitouchGesture != _TUCCursorGestureNone && !shouldTreatAsTap) {
             [self performMouseEventForGesture:completedMultitouchGesture];
         }
-        
+
         [self stopCurrentGesture];
-        
-        if (!suppressEndedAction && shouldTreatAsTap) {
+
+        if (isLateSecondaryTap) {
+            [self performMouseEventForGesture:TUCCursorGestureTapSecondFinger];
+        } else if (!suppressEndedAction && !alreadySecondaryClicked && shouldTreatAsTap) {
             [self performMouseEventForGesture:TUCCursorGestureTap];
         }
-        
+
+        self.sawAdditionalFingerDuringCursorTouch = NO;
+        self.secondaryClickFiredForCursorTouch = NO;
+
         return;
     }
     
@@ -694,9 +763,12 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
                     if (!CGPointEqualToPoint(trajectoryA, trajectoryB)) {
                         self.identifiedMultitouchGesture = TUCCursorGesturePinch;
                     }
-//                    else {
-//                        self.identifiedMultitouchGesture = TUCCursorGestureTwoFingerDrag;
-//                    }
+                    else {
+                        // Both fingers travelling the same way is a two-finger drag. The
+                        // Swift action map already routes this to .scroll; without this
+                        // branch the case simply never fired.
+                        self.identifiedMultitouchGesture = TUCCursorGestureTwoFingerDrag;
+                    }
                 }
                 
             } else {
@@ -744,6 +816,7 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
     }
     
     NSSet<TUCTouch *> *touchesInProximity = [self touchesInProximityTo:self.cursorTouch.location maxDistance:60];
+
     if (touchesInProximity.count >= 2 && self.identifiedMultitouchGesture == _TUCCursorGestureNone) {
 
         // TUCCursorGestureTwoFingerTap
@@ -766,10 +839,12 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
         NSSet<TUCTouch *> *endedTouches = [touchesInProximity filteredSetUsingPredicate:[NSCompoundPredicate andPredicateWithSubpredicates:@[p5, p6]]];
 
         if (endedTouches.count == 1) {
+
             for (TUCTouch* touchToRemove in endedTouches) {
                 [self removeTouch:touchToRemove now:YES];
             }
 
+            self.secondaryClickFiredForCursorTouch = YES;
             [self performMouseEventForGesture:TUCCursorGestureTapSecondFinger];
             return YES;
         }
@@ -1059,11 +1134,29 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
 
 
 - (TUCScreen *)touchscreen {
+    TUCScreen *resolved = nil;
+
     if (self.delegate != nil) {
-        return [self.delegate touchscreen];
+        resolved = [self.delegate touchscreen];
     }
-    
-    return [[TUCScreen allScreens] firstObject];
+
+    if (resolved == nil) {
+        // Prefer an external display. A USB HID digitizer is never the built-in panel, and
+        // falling back to the first screen sends every touch to the laptop display on a
+        // Mac with an external touchscreen attached.
+        for (TUCScreen *s in [TUCScreen allScreens]) {
+            if (CGDisplayIsBuiltin((CGDirectDisplayID)s.id) == 0) {
+                resolved = s;
+                break;
+            }
+        }
+    }
+
+    if (resolved == nil) {
+        resolved = [[TUCScreen allScreens] firstObject];
+    }
+
+    return resolved;
 }
 
 
