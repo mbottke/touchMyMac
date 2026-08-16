@@ -37,6 +37,7 @@
 @property BOOL cursorHiddenForTouch;
 @property BOOL hasCursorLocationBeforeTouch;
 @property CGPoint cursorLocationBeforeTouch;
+@property NSUInteger touchSessionGeneration;
 
 @end
 
@@ -54,6 +55,8 @@ static NSString * const kMissionControlAppPath = @"/System/Applications/Mission 
 static NSString * const TUCShortcutDescriptorCodeKey = @"code";
 static NSString * const TUCShortcutDescriptorFlagKey = @"flag";
 static const useconds_t kShortcutSequenceStepDelayMicroseconds = 30000;
+/// Long enough for a posted click to be delivered before the pointer is warped back.
+static const NSTimeInterval kCursorRestoreDelay = 0.08;
 
 + (TUCCursorUtilities *)sharedInstance {
     static TUCCursorUtilities *sharedInstance;
@@ -120,9 +123,22 @@ extern CGError CGSSetConnectionProperty(TUCConnectionID cid, TUCConnectionID tar
     }
     self.inTouchSession = YES;
 
+    self.touchSessionGeneration++;
+
     if (self.restoresCursorAfterTouch) {
-        self.cursorLocationBeforeTouch = [self currentCursorLocation];
-        self.hasCursorLocationBeforeTouch = YES;
+        CGPoint current = [self currentCursorLocation];
+
+        // Never treat a point on the touch panel itself as "where the user was". If a
+        // previous restore lost its race with a posted click the pointer is already
+        // stranded over there, and saving it would pin it there permanently: each
+        // subsequent tap would faithfully restore the cursor to the touchscreen.
+        BOOL onTouchDisplay = self.touchDisplayID != 0
+            && CGRectContainsPoint(CGDisplayBounds(self.touchDisplayID), current);
+
+        if (!onTouchDisplay) {
+            self.cursorLocationBeforeTouch = current;
+            self.hasCursorLocationBeforeTouch = YES;
+        }
     }
 
     if (self.hidesCursorDuringTouch && !self.cursorHiddenForTouch) {
@@ -144,11 +160,24 @@ extern CGError CGSSetConnectionProperty(TUCConnectionID cid, TUCConnectionID tar
     }
 
     if (self.restoresCursorAfterTouch && self.hasCursorLocationBeforeTouch) {
-        CGWarpMouseCursorPosition(self.cursorLocationBeforeTouch);
-        // Warping decouples the hardware pointer from the cursor until reassociated.
-        CGAssociateMouseAndMouseCursorPosition(true);
+        // CGEventPost is asynchronous. The liftoff click was posted moments ago from
+        // processTouchesForCursorInput, and warping before WindowServer delivers it lets
+        // the click drag the pointer back to the touch point. Let the queue drain first.
+        CGPoint target = self.cursorLocationBeforeTouch;
+        NSUInteger generation = self.touchSessionGeneration;
+        __weak typeof(self) weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kCursorRestoreDelay * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            typeof(self) strongSelf = weakSelf;
+            // A new touch started while we were waiting; it owns the cursor now.
+            if (strongSelf == nil || strongSelf.touchSessionGeneration != generation) {
+                return;
+            }
+            CGWarpMouseCursorPosition(target);
+            // Warping decouples the hardware pointer from the cursor until reassociated.
+            CGAssociateMouseAndMouseCursorPosition(true);
+        });
     }
-    self.hasCursorLocationBeforeTouch = NO;
 }
 
 - (BOOL)resolveShortcutToken:(NSString *)token

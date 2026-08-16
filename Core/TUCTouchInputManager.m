@@ -175,6 +175,10 @@ static const CGFloat kFiveFingerHoldMaxTravelMM = 12.0f;
     // Open the session before any cursor warping so the pre-touch pointer position is
     // captured accurately.
     if (hasActiveTouches) {
+        // Kept current every frame: the digitizer can be rebound to a different screen at
+        // runtime, and the cursor utilities use this to avoid restoring the pointer onto
+        // the touch panel itself.
+        [TUCCursorUtilities sharedInstance].touchDisplayID = (CGDirectDisplayID)[self touchscreen].id;
         [[TUCCursorUtilities sharedInstance] beginTouchSession];
     }
 

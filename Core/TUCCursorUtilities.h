@@ -47,6 +47,9 @@ NS_ASSUME_NONNULL_BEGIN
 /// focus follows the click and cannot be undone.
 @property (nonatomic) BOOL restoresCursorAfterTouch;
 
+/// The display the digitizer is bound to. The pointer is never restored onto it.
+@property (nonatomic) CGDirectDisplayID touchDisplayID;
+
 /// Called when the first finger of an interaction lands.
 - (void)beginTouchSession;
 
