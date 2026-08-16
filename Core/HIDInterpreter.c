@@ -7,6 +7,7 @@
 
 #include "HIDInterpreter.h"
 #include <unistd.h>
+#include <os/log.h>
 #include "TUCTouchInputManager-C.h"
 
 #include <mach/mach_port.h>
@@ -55,6 +56,12 @@ static const int     kCertificationReadAttempts   = 5;
 
 /// Contact Count Maximum as reported by the panel, 0 when unknown. Informational.
 uint8_t gReportedContactCountMaximum = 0;
+
+/// Retry state for deferred device setup (see Handle_SetupRetryTimer).
+static const CFTimeInterval kSetupRetryInterval = 2.0;
+static const int            kMaxSetupRetries    = 15;
+static int                  gSetupRetryCount    = 0;
+static Boolean              gSetupRetryScheduled = false;
 
 
 #pragma mark General Debug Utilities
@@ -539,6 +546,59 @@ static void Handle_InputValueCallback (
 
 
 
+static Boolean SetUpTouchDevice(IOHIDDeviceRef inIOHIDDeviceRef);
+
+/// The matching callback fires once per device. When the app is launched by
+/// LaunchServices (login item, Finder) it can start before the HID/TCC layer is ready, so
+/// IOHIDDeviceOpen fails with kIOReturnNotPermitted and, without this retry, the
+/// touchscreen stays dead until the app is relaunched by hand. Retry on the run loop.
+static void Handle_SetupRetryTimer(CFRunLoopTimerRef timer, void *info) {
+    IOHIDDeviceRef device = (IOHIDDeviceRef)info;
+
+    if (gQueue != NULL || device == NULL) {
+        CFRunLoopTimerInvalidate(timer);
+        if (device) CFRelease(device);
+        return;
+    }
+
+    if (SetUpTouchDevice(device)) {
+        os_log(OS_LOG_DEFAULT, "TouchMyMac: touch device ready after %d retries", gSetupRetryCount);
+        gSetupRetryScheduled = false;
+        CFRunLoopTimerInvalidate(timer);
+        CFRelease(device);
+        return;
+    }
+
+    if (++gSetupRetryCount >= kMaxSetupRetries) {
+        os_log_error(OS_LOG_DEFAULT,
+                     "TouchMyMac: giving up after %d setup attempts; touch will not work. "
+                     "Check Input Monitoring and Accessibility permissions.", gSetupRetryCount);
+        CFRunLoopTimerInvalidate(timer);
+        CFRelease(device);
+    }
+}
+
+static void ScheduleSetupRetry(IOHIDDeviceRef device) {
+    if (device == NULL) {
+        return;
+    }
+    CFRetain(device);
+    CFRunLoopTimerContext ctx = {0, (void *)device, NULL, NULL, NULL};
+    CFRunLoopTimerRef timer = CFRunLoopTimerCreate(kCFAllocatorDefault,
+                                                   CFAbsoluteTimeGetCurrent() + kSetupRetryInterval,
+                                                   kSetupRetryInterval, 0, 0,
+                                                   Handle_SetupRetryTimer, &ctx);
+    if (timer == NULL) {
+        CFRelease(device);
+        return;
+    }
+    CFRunLoopAddTimer(CFRunLoopGetMain(), timer, kCFRunLoopCommonModes);
+    CFRelease(timer);
+    os_log(OS_LOG_DEFAULT, "TouchMyMac: touch device not ready, retrying every %.1fs",
+           (double)kSetupRetryInterval);
+}
+
+
 // this will be called when the HID Manager matches a new (hot plugged) HID device
 static void Handle_DeviceMatchingCallback(
             void *          inContext,       // context from IOHIDManagerRegisterDeviceMatchingCallback
@@ -546,9 +606,6 @@ static void Handle_DeviceMatchingCallback(
             void *          inSender,        // the IOHIDManagerRef for the new device
             IOHIDDeviceRef  inIOHIDDeviceRef // the new HID device
 ) {
-    printf("%s(context: %p, result: %p, sender: %p, device: %p).\n",
-        __PRETTY_FUNCTION__, inContext, (void *) inResult, inSender, (void*) inIOHIDDeviceRef);
-   
     gAreElementRefsSet = 0;
 
     // This interpreter currently supports a single active touchscreen queue.
@@ -556,12 +613,27 @@ static void Handle_DeviceMatchingCallback(
     if (gQueue != NULL) {
         return;
     }
-    
-    
+
     if (inIOHIDDeviceRef == NULL) {
-        fprintf(stderr, "%s: matching callback fired with a NULL device.\n", __PRETTY_FUNCTION__);
+        os_log_error(OS_LOG_DEFAULT, "TouchMyMac: matching callback fired with a NULL device");
         return;
     }
+
+    if (!SetUpTouchDevice(inIOHIDDeviceRef)) {
+        // The forced enumeration in OpenHIDManager and the real matching callback can both
+        // land here for the same device; only ever run one retry timer.
+        if (!gSetupRetryScheduled) {
+            gSetupRetryScheduled = true;
+            gSetupRetryCount = 0;
+            ScheduleSetupRetry(inIOHIDDeviceRef);
+        }
+    }
+}
+
+
+/// Opens, mode-switches and queues the digitizer. Returns false if the device is not ready
+/// yet, in which case the caller should retry rather than give up.
+static Boolean SetUpTouchDevice(IOHIDDeviceRef inIOHIDDeviceRef) {
 
     // On macOS 26/27 the digitizer is TCC gated (RequiresTCCAuthorization = Yes in the
     // IOHIDDevice registry entry). The matching callback can fire before the device is
@@ -574,16 +646,14 @@ static void Handle_DeviceMatchingCallback(
     // process is the sole consumer. Fall back to a shared open if seizing is refused.
     IOReturn deviceOpenResult = IOHIDDeviceOpen(inIOHIDDeviceRef, kIOHIDOptionsTypeSeizeDevice);
     if (deviceOpenResult != kIOReturnSuccess) {
-        fprintf(stderr, "%s: seize failed: 0x%x, retrying as shared open\n",
-                __PRETTY_FUNCTION__, deviceOpenResult);
         deviceOpenResult = IOHIDDeviceOpen(inIOHIDDeviceRef, kIOHIDOptionsTypeNone);
-    } else {
-
     }
     if (deviceOpenResult != kIOReturnSuccess) {
-        fprintf(stderr, "%s: IOHIDDeviceOpen failed: 0x%x (Input Monitoring not granted yet?)\n",
-                __PRETTY_FUNCTION__, deviceOpenResult);
-        return;
+        os_log(OS_LOG_DEFAULT,
+               "TouchMyMac: IOHIDDeviceOpen failed (0x%x); device not ready, or Input Monitoring "
+               "is not granted to this build (ad-hoc signatures invalidate the grant on rebuild)",
+               deviceOpenResult);
+        return false;
     }
 
     // Windows-spec HID touchscreens boot in single-touch absolute-mouse emulation and only
@@ -609,9 +679,14 @@ static void Handle_DeviceMatchingCallback(
         }
 
         if (certResult != kIOReturnSuccess) {
-            fprintf(stderr, "%s: could not read the device certification report (0x%x); "
-                            "the panel may stay in single-touch mouse emulation.\n",
-                    __PRETTY_FUNCTION__, certResult);
+            // Without this read a Windows-spec panel stays in single-touch mouse emulation
+            // and never emits digitizer reports, so treat it as "not ready" and let the
+            // caller retry rather than coming up in a permanently broken state.
+            os_log(OS_LOG_DEFAULT,
+                   "TouchMyMac: certification report unreadable (0x%x); panel would stay in "
+                   "mouse emulation, will retry", certResult);
+            IOHIDDeviceClose(inIOHIDDeviceRef, kIOHIDOptionsTypeNone);
+            return false;
         }
 
         // Contact Count Maximum, purely informational.
@@ -629,12 +704,12 @@ static void Handle_DeviceMatchingCallback(
     // NB: the original check called CFGetTypeID(queue) unconditionally, which segfaults
     // when IOHIDQueueCreate returns NULL, and then fell through and used the queue anyway.
     if (queue == NULL || CFGetTypeID(queue) != IOHIDQueueGetTypeID()) {
-        fprintf(stderr, "%s: IOHIDQueueCreate returned an invalid queue; aborting registration.\n",
-                __PRETTY_FUNCTION__);
+        os_log(OS_LOG_DEFAULT, "TouchMyMac: IOHIDQueueCreate returned an invalid queue, will retry");
         if (queue != NULL) {
             CFRelease(queue);
         }
-        return;
+        IOHIDDeviceClose(inIOHIDDeviceRef, kIOHIDOptionsTypeNone);
+        return false;
     }
 
     IOHIDQueueRegisterValueAvailableCallback(queue, Handle_QueueValueAvailable, NULL);
@@ -665,17 +740,23 @@ static void Handle_DeviceMatchingCallback(
             setvbuf(stderr, NULL, _IONBF, 0);
             CFRelease(allElements);
         } else {
-            fprintf(stderr, "%s: IOHIDDeviceCopyMatchingElements returned NULL; "
-                            "touch elements could not be enumerated.\n", __PRETTY_FUNCTION__);
+            os_log_error(OS_LOG_DEFAULT,
+                         "TouchMyMac: IOHIDDeviceCopyMatchingElements returned NULL; "
+                         "touch elements could not be enumerated");
         }
     }
 
     IOHIDQueueStart(queue);
     gQueue = queue;
-    
+
     TouchInputManagerDidConnectTouchscreen(gTouchManager);
-    
-}   // Handle_DeviceMatchingCallback
+
+    os_log(OS_LOG_DEFAULT,
+           "TouchMyMac: touchscreen ready (%ld touch collections, contact max %u)",
+           (long)CFArrayGetCount(gTouchCollectionElements), gReportedContactCountMaximum);
+
+    return true;
+}   // SetUpTouchDevice
  
 
 
