@@ -7,6 +7,7 @@
 
 #import "TUCCursorUtilities.h"
 #import <Carbon/Carbon.h>
+#import <os/log.h>
 #import <unistd.h>
 
 @interface TUCCursorUtilities ()
@@ -38,6 +39,8 @@
 @property CGPoint cursorLocationBeforeTouch;
 
 @end
+
+
 
 @implementation TUCCursorUtilities
 
@@ -102,7 +105,8 @@ extern CGError CGSSetConnectionProperty(TUCConnectionID cid, TUCConnectionID tar
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         if (_CGSDefaultConnection == NULL || CGSSetConnectionProperty == NULL) {
-            fprintf(stderr, "TouchMyMac: background cursor hiding unavailable on this system\n");
+            os_log(OS_LOG_DEFAULT,
+                   "TouchMyMac: background cursor hiding unavailable on this system");
             return;
         }
         TUCConnectionID cid = _CGSDefaultConnection();
